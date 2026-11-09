@@ -1027,7 +1027,11 @@
       fit();
       toast(syncSummary(msg.summary), 6000);
     } else if (msg.type === 'activeFile') {
+      // The extension resends this after every change; only react when the file really changed.
+      if (msg.id === activeId) return;
       activeId = msg.id;
+      // A highlighted lineage follows the editor, so the box you switch to is never left dimmed.
+      if (activeId && selected && selected !== activeId) selected = activeId;
       applyHighlight();
     }
   });

@@ -322,7 +322,7 @@ class Controller {
     const wasOpen = vscode.workspace.textDocuments.some((d) => d.uri.fsPath === m.absPath(id));
     const r = m.renameModel(id, newName);
     this.report(r, `Renamed ${id} to ${newName}`);
-    if (r.ok && wasOpen) await vscode.window.showTextDocument(vscode.Uri.file(r.newAbs), { preview: false });
+    if (r.ok && wasOpen) await this.openPath(r.newAbs, this.panelSurface());
   }
 
   /** For a red box: point every ref() to it at an existing model instead. */
@@ -361,18 +361,34 @@ class Controller {
     }
   }
 
+  panelSurface() {
+    return [...this.surfaces].find((s) => s.panel);
+  }
+
   openFile(id, surface) {
     const abs = this.model.absPath(id);
     if (abs) return this.openPath(abs, surface);
   }
 
+  /**
+   * Opens a file to the left of the canvas, so dbt Flow always stays on the right.
+   * If the canvas is the only editor group (all files closed), the file opens in a
+   * new group that is then moved to the left of the canvas.
+   */
   async openPath(abs, surface) {
-    let viewColumn;
-    if (surface && surface.panel) {
-      // Keep the canvas visible: open next to it, not on top of it.
-      viewColumn = surface.panel.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+    const uri = vscode.Uri.file(abs);
+    const col = surface && surface.panel ? surface.panel.viewColumn : undefined;
+    if (!col) {
+      await vscode.window.showTextDocument(uri, { preview: false });
+      return;
     }
-    await vscode.window.showTextDocument(vscode.Uri.file(abs), { preview: false, viewColumn });
+    if (col > 1) {
+      await vscode.window.showTextDocument(uri, { preview: false, viewColumn: col - 1 });
+      return;
+    }
+    const groupsBefore = vscode.window.tabGroups.all.length;
+    await vscode.window.showTextDocument(uri, { preview: false, viewColumn: vscode.ViewColumn.Two });
+    if (groupsBefore === 1) await vscode.commands.executeCommand('workbench.action.moveActiveEditorGroupLeft');
   }
 
   askName(prompt, value, ignore) {

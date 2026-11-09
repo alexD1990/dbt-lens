@@ -58,7 +58,8 @@ function makeVscode(wsRoot, answers) {
       },
       showErrorMessage: (m) => warnings.push('ERR ' + m),
       setStatusBarMessage: () => {},
-      showTextDocument: async (uri) => posted.push({ opened: uri.fsPath }),
+      showTextDocument: async (uri, opts = {}) => posted.push({ opened: uri.fsPath, viewColumn: opts.viewColumn }),
+      tabGroups: { all: [{}, {}] },
       createWebviewPanel: (type, title, showOptions, options) => {
         const panel = {
           type, title, showOptions, options, viewColumn: showOptions.viewColumn,
@@ -71,6 +72,7 @@ function makeVscode(wsRoot, answers) {
       },
     },
     commands: {
+      executeCommand: async (id) => posted.push({ command: id }),
       registerCommand: (id, fn) => {
         commands[id] = fn;
         return { dispose() {} };
@@ -174,7 +176,16 @@ test('extension activates, renders HTML and handles canvas messages', async () =
   const moved = after.nodes.find((n) => n.id === 'stg_bb');
   assert.deepEqual([moved.x, moved.y], [before.x, before.y]);
 
+  // Files open to the left of the canvas, which stays on the right.
   await send({ type: 'open', id: 'stg_a' });
-  assert.ok(fake.posted.some((p) => p.opened && p.opened.endsWith('stg_a.sql')));
+  assert.deepEqual(fake.posted.at(-1), { opened: path.join(root, 'models', 'staging', 'stg_a.sql'), viewColumn: 1 });
+  // Canvas alone on screen (all files closed): open beside it, then move that group to the left.
+  panel.viewColumn = 1;
+  fake.vscode.window.tabGroups.all = [{}];
+  await send({ type: 'open', id: 'stg_a' });
+  assert.deepEqual(fake.posted.slice(-2), [
+    { opened: path.join(root, 'models', 'staging', 'stg_a.sql'), viewColumn: 2 },
+    { command: 'workbench.action.moveActiveEditorGroupLeft' },
+  ]);
   assert.equal(fake.warnings.filter((w) => w.startsWith('ERR')).length, 0, fake.warnings.join('\n'));
 });
