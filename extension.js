@@ -209,10 +209,20 @@ class Controller {
       }
       case 'deleteBox':
         return this.report(m.deleteBox(msg.id));
+      case 'removeFromCanvas':
+        return this.report(m.removeFromCanvas(msg.id));
+      case 'showHidden':
+        return this.report(m.showHidden(), 'Removed boxes are back on the canvas');
       case 'move':
         return this.report(m.moveNode(msg.id, msg.x, msg.y));
       case 'tidy':
         return this.report(m.tidy(), 'Layout tidied. Undo puts it back.');
+      case 'sync': {
+        const r = m.syncFromFiles();
+        this.report(r);
+        for (const s of this.surfaces) s.webview.postMessage({ type: 'synced', summary: r.summary });
+        return;
+      }
       case 'undo': {
         const r = m.undo();
         return this.report(r, r.ok ? r.message : null);
@@ -323,7 +333,11 @@ class Controller {
     this.report(m.retargetRefs(missingId, pick), `ref('${missingId}') now points to ${pick}`);
   }
 
-  /** A model file was renamed in Explorer: keep its box in place and offer to fix refs. */
+  /**
+   * A model file was renamed in Explorer: keep its box in place and update the
+   * refs to it, asking the same way as a rename on the canvas does (a dialog,
+   * or no question at all when dbtFlow.confirmFileEdits is off).
+   */
   async onFilesRenamed(files) {
     const m = this.model;
     if (!m) return;
@@ -333,14 +347,11 @@ class Controller {
       this.broadcast();
       if (!info.usedBy.length) continue;
       const n = info.usedBy.length;
-      const choice = await vscode.window.showWarningMessage(
-        `${n} model${n === 1 ? '' : 's'} still use${n === 1 ? 's' : ''} ref('${info.oldName}'). Update to ref('${info.newName}')?`,
-        'Update refs',
-        'Leave as is'
+      const ok = await this.confirmRefEdits(
+        `You renamed ${info.oldName} to ${info.newName}. Update ref('${info.oldName}') to ref('${info.newName}') in ${n} file${n === 1 ? '' : 's'}?`,
+        info.usedBy
       );
-      if (choice === 'Update refs') {
-        this.report(m.retargetRefs(info.oldName, info.newName), `Updated refs to ${info.newName}`);
-      }
+      if (ok) this.report(m.retargetRefs(info.oldName, info.newName), `Updated refs to ${info.newName}`);
     }
   }
 

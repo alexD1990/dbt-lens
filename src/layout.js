@@ -7,7 +7,13 @@ const NODE_H = 58;
 const COL_W = 300;
 const ROW_H = 86;
 
-function layeredLayout(ids, edges, sortKey = (id) => id) {
+/**
+ * `minLayer(id)` is an optional lower bound on a box's column, used to keep
+ * dbt layers in order (staging before intermediate before marts) even where
+ * the files have no ref() between them. Connections always win: a box is
+ * never placed left of something it depends on.
+ */
+function layeredLayout(ids, edges, sortKey = (id) => id, minLayer = () => 0) {
   const idSet = new Set(ids);
   const ins = new Map(ids.map((id) => [id, []]));
   const outs = new Map(ids.map((id) => [id, []]));
@@ -17,8 +23,9 @@ function layeredLayout(ids, edges, sortKey = (id) => id) {
     ins.get(e.to).push(e.from);
   }
 
-  // Longest path from roots via Kahn; nodes left in a cycle get layer 0.
-  const layer = new Map(ids.map((id) => [id, 0]));
+  // Longest path from roots via Kahn, starting each box at its layer hint.
+  // Nodes left in a cycle keep their hint.
+  const layer = new Map(ids.map((id) => [id, minLayer(id) || 0]));
   const indeg = new Map(ids.map((id) => [id, ins.get(id).length]));
   const queue = ids.filter((id) => indeg.get(id) === 0);
   while (queue.length) {
@@ -34,9 +41,14 @@ function layeredLayout(ids, edges, sortKey = (id) => id) {
   for (const id of ids) {
     if (ins.get(id).length === 0 && outs.get(id).length) {
       const minChild = Math.min(...outs.get(id).map((t) => layer.get(t)));
-      layer.set(id, Math.max(0, minChild - 1));
+      layer.set(id, Math.max(minLayer(id) || 0, minChild - 1));
     }
   }
+
+  // Close gaps left by layer hints that no box uses (e.g. no sources at all).
+  const used = [...new Set(layer.values())].sort((a, b) => a - b);
+  const compact = new Map(used.map((l, i) => [l, i]));
+  for (const id of ids) layer.set(id, compact.get(layer.get(id)));
 
   const layers = [];
   for (const id of ids) {

@@ -26,6 +26,7 @@
     search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>',
     undo: '<path d="M4.5 3.5 2 6l2.5 2.5"/><path d="M2.5 6H10a3.5 3.5 0 0 1 0 7H6"/>',
     redo: '<path d="M11.5 3.5 14 6l-2.5 2.5"/><path d="M13.5 6H6a3.5 3.5 0 0 0 0 7h4"/>',
+    sync: '<path d="M13.5 6.5A5.5 5.5 0 0 0 3.4 4.6"/><path d="M3 2v3h3"/><path d="M2.5 9.5a5.5 5.5 0 0 0 10.1 1.9"/><path d="M13 14v-3h-3"/>',
     add: '<rect x="2" y="3.5" width="12" height="9" rx="2.5"/><path d="M8 6v4M6 8h4"/>',
     tidy: '<rect x="1.5" y="2.5" width="4" height="3" rx=".8"/><rect x="1.5" y="10.5" width="4" height="3" rx=".8"/><rect x="10.5" y="6.5" width="4" height="3" rx=".8"/><path d="M5.5 4h2.5v8H5.5M8 8h2.5"/>',
     fit: '<path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="5.5" width="6" height="5" rx="1"/>',
@@ -74,6 +75,8 @@
       </div>
       <div class="empty" id="empty" hidden></div>
       <nav class="hud tools" aria-label="Canvas tools">
+        <button class="icon" id="btn-sync" title="Sync with files: show every model and how they connect" aria-label="Sync with files">${svgIcon('sync')}</button>
+        <span class="hud-sep"></span>
         <button class="icon" id="btn-undo" aria-label="Undo">${svgIcon('undo')}</button>
         <button class="icon" id="btn-redo" aria-label="Redo">${svgIcon('redo')}</button>
         <span class="hud-sep"></span>
@@ -259,7 +262,7 @@
       case 'snapshot':
         return { meta: 'snapshots', chip: 'snapshot' };
       case 'missing':
-        return { meta: 'no model with this name', chip: null };
+        return { meta: 'no .sql file with this name', chip: null };
       default:
         return {
           meta: n.folder || modelRoot,
@@ -391,12 +394,21 @@
     minimap.hidden = view.nodes.length === 0;
     if (!view.nodes.length) {
       empty.innerHTML = '';
-      empty.append(el('p', 'empty-title', 'No models yet'));
-      empty.append(el('p', 'empty-text', 'Right-click anywhere to create a box. Connect boxes, then create the .sql files.'));
       const btn = el('button', 'primary');
-      btn.innerHTML = svgIcon('plus');
-      btn.append(document.createTextNode('Create new box'));
-      btn.addEventListener('click', createBoxInCenter);
+      if (view.hiddenCount) {
+        // The project has files; they were only removed from the canvas.
+        empty.append(el('p', 'empty-title', 'The canvas is empty'));
+        empty.append(el('p', 'empty-text', `Sync to show all ${view.hiddenCount} models from your files and how they connect, or right-click to sketch a new box.`));
+        btn.innerHTML = svgIcon('sync');
+        btn.append(document.createTextNode('Sync with files'));
+        btn.addEventListener('click', () => post({ type: 'sync' }));
+      } else {
+        empty.append(el('p', 'empty-title', 'No models yet'));
+        empty.append(el('p', 'empty-text', 'Right-click anywhere to create a box. Connect boxes, then create the .sql files.'));
+        btn.innerHTML = svgIcon('plus');
+        btn.append(document.createTextNode('Create new box'));
+        btn.addEventListener('click', createBoxInCenter);
+      }
       empty.append(btn);
     }
 
@@ -406,15 +418,12 @@
   function updateDeleteButton() {
     const del = $('btn-delete');
     const n = selected && view ? view.nodes.find((x) => x.id === selected) : null;
-    del.disabled = !n || n.kind !== 'planned';
-    del.title = !n ? 'Select a box to delete it' : n.kind === 'planned' ? `Delete ${n.name} (Del)` : whyNoDelete(n);
-  }
-
-  function whyNoDelete(n) {
-    if (n.kind !== 'missing') return `${n.name} has a file. Delete the file to remove it.`;
-    const files = (n.usedBy || []).map((r) => r.split('/').pop());
-    const who = files.length ? files.join(', ') : 'A model';
-    return `${who} still ${files.length === 1 ? 'uses' : 'use'} ref('${n.name}'). Right-click the box to point it to another model, or remove the ref in the file.`;
+    del.disabled = !n;
+    del.title = !n
+      ? 'Select a box to remove it'
+      : n.kind === 'planned'
+        ? `Delete ${n.name} (Del)`
+        : `Remove ${n.name} from the canvas (Del). No file is deleted.`;
   }
 
   function renderLegend() {
@@ -645,9 +654,13 @@
       for (const rel of (n.usedBy || []).slice(0, 5)) {
         items.push({ label: `Open ${rel.split('/').pop()}`, hint: 'uses this ref', run: () => post({ type: 'openRel', rel }) });
       }
+      items.push('-');
+      items.push({ label: 'Remove from canvas', hint: 'Del', danger: true, run: () => removeBox(n) });
     } else {
       if (n.rel) items.push({ label: 'Open file', hint: 'Double-click', run: () => post({ type: 'open', id: n.id }) });
       if (n.kind === 'model') items.push({ label: 'Rename…', hint: 'updates refs', run: () => post({ type: 'rename', id: n.id }) });
+      items.push('-');
+      items.push({ label: 'Remove from canvas', hint: n.rel ? 'file is kept' : 'Del', danger: true, run: () => removeBox(n) });
     }
     items.push('-');
     if (selected === n.id) items.push({ label: 'Clear lineage highlight', hint: 'Esc', run: () => select(null) });
@@ -659,9 +672,14 @@
     const w = toWorld(cx, cy);
     const n = view.plannedCount;
     return [
+      { label: 'Sync with files', hint: 'shows every model', run: () => post({ type: 'sync' }) },
+      '-',
       { label: 'Create new box', run: () => post({ type: 'createBoxAt', x: snap(w.x - W / 2), y: snap(w.y - H / 2) }) },
       { label: n ? `Create all files (${n})` : 'Create all files', disabled: !n, run: () => post({ type: 'createAll' }) },
       '-',
+      view.hiddenCount
+        ? { label: `Show removed boxes (${view.hiddenCount})`, run: () => post({ type: 'showHidden' }) }
+        : null,
       { label: 'Tidy up layout', run: () => post({ type: 'tidy' }) },
       { label: 'Fit to view', hint: 'F', run: fit },
       '-',
@@ -697,14 +715,27 @@
 
   function deleteSelected() {
     const n = selected && nodeById(selected);
-    if (n && n.kind === 'planned') post({ type: 'deleteBox', id: n.id });
-    else if (n) toast(whyNoDelete(n), 5200);
+    if (n) removeBox(n);
+  }
+
+  /** Boxes without a file are deleted; every other box only leaves the canvas. Files are never touched. */
+  function removeBox(n) {
+    if (n.kind === 'planned') return post({ type: 'deleteBox', id: n.id });
+    post({ type: 'removeFromCanvas', id: n.id });
+    if (n.kind === 'missing' && n.usedBy && n.usedBy.length) {
+      const files = n.usedBy.map((r) => r.split('/').pop()).join(', ');
+      toast(`${n.name} is off the canvas. ${files} still ${n.usedBy.length === 1 ? 'uses' : 'use'} ref('${n.name}').`, 5200);
+    } else if (n.rel) {
+      toast(`${n.name} is off the canvas. The file is kept; Ctrl+Z brings the box back.`, 4200);
+    } else {
+      toast(`${n.name} is off the canvas. Ctrl+Z brings it back.`, 3600);
+    }
   }
 
   // ------------------------------------------------------------------ pointer
 
   viewport.addEventListener('pointerdown', (e) => {
-    if (!view || e.button === 2 || e.target.closest('.hud, .legend')) return;
+    if (!view || e.button === 2 || e.target.closest('.hud, .legend, button')) return;
     hideMenu();
     viewport.focus({ preventScroll: true });
     const port = e.target.closest('.port.out');
@@ -890,6 +921,7 @@
   window.addEventListener('blur', hideMenu);
   window.addEventListener('resize', drawMinimap);
 
+  $('btn-sync').addEventListener('click', () => post({ type: 'sync' }));
   $('btn-undo').addEventListener('click', () => post({ type: 'undo' }));
   $('btn-redo').addEventListener('click', () => post({ type: 'redo' }));
   $('btn-add').addEventListener('click', createBoxInCenter);
@@ -920,6 +952,23 @@
     }
   });
 
+  function syncSummary(s) {
+    if (!s) return 'Synced with files.';
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const parts = [plural(s.models, 'model')];
+    if (s.sources) parts.push(plural(s.sources, 'source'));
+    if (s.seeds) parts.push(plural(s.seeds, 'seed'));
+    if (s.snapshots) parts.push(plural(s.snapshots, 'snapshot'));
+    let text = `Synced ${parts.join(', ')} and ${plural(s.connections, 'connection')}.`;
+    if (s.missing.length) {
+      const names = s.missing.slice(0, 3).join(', ') + (s.missing.length > 3 ? ', …' : '');
+      text += ` ${s.missing.length} ref${s.missing.length === 1 ? ' points' : 's point'} to a model with no file (red): ${names}.`;
+    } else if (!s.connections && s.models > 1) {
+      text += ' No model uses ref() or source() yet, so there are no lines.';
+    }
+    return text;
+  }
+
   // ------------------------------------------------------------------ messages
 
   let first = true;
@@ -944,6 +993,9 @@
         if (hadSavedView) applyTransform();
         else fit(true);
       }
+    } else if (msg.type === 'synced') {
+      fit();
+      toast(syncSummary(msg.summary), 6000);
     } else if (msg.type === 'activeFile') {
       activeId = msg.id;
       applyHighlight();

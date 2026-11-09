@@ -11,7 +11,14 @@ const MAX_HISTORY = 200;
 const REAL_KINDS = new Set(['model', 'seed', 'snapshot', 'source']);
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const emptyState = () => ({ version: 1, positions: {}, planned: {}, plannedEdges: [] });
+
+// Usual dbt layer folder names, in the order data flows through them.
+const LAYER_FOLDERS = [
+  [1, /^(stag|stg|base|src|source|raw|landing|bronze)/],
+  [2, /^(int|intermediate|prep|transform|silver|clean)/],
+  [3, /^(mart|report|fact|dim|core|gold|presentation|analytics|serving)/],
+];
+const emptyState = () => ({ version: 1, positions: {}, planned: {}, plannedEdges: [], hidden: {} });
 
 /**
  * Everything the canvas shows and every change it can make, independent of
@@ -114,7 +121,7 @@ class FlowModel {
     const ids = [...this.nodes.keys()];
     const known = ids.filter((id) => pos[id]);
     if (!known.length && ids.length) {
-      const laid = layeredLayout(ids, this.edges, (id) => this.sortKey(id));
+      const laid = this.layout(ids);
       for (const id of ids) pos[id] = laid[id];
       return;
     }
@@ -133,6 +140,30 @@ class FlowModel {
     }
   }
 
+  /**
+   * Column hint from the folder a model lives in (null when the folder is not
+   * a known dbt layer). Sources, seeds and snapshots come first.
+   */
+  layerHint(id) {
+    const n = this.nodes.get(id);
+    if (!n) return null;
+    if (n.kind === 'source' || n.kind === 'seed' || n.kind === 'snapshot') return 0;
+    if (n.kind === 'missing') return 0; // placed next to whatever uses it
+    const folder = (n.group || '').toLowerCase();
+    const hit = folder && LAYER_FOLDERS.find(([, re]) => re.test(folder));
+    return hit ? hit[0] : null;
+  }
+
+  layout(ids) {
+    const hints = new Map(ids.map((id) => [id, this.layerHint(id)]));
+    // Models outside a layer folder share the first model layer in use.
+    const modelHints = ids
+      .filter((id) => ['model', 'planned'].includes(this.nodes.get(id)?.kind) && hints.get(id) !== null)
+      .map((id) => hints.get(id));
+    const firstModelLayer = modelHints.length ? Math.min(...modelHints) : 0;
+    return layeredLayout(ids, this.edges, (id) => this.sortKey(id), (id) => hints.get(id) ?? firstModelLayer);
+  }
+
   sortKey(id) {
     const n = this.nodes.get(id);
     const kindRank = { source: 0, seed: 1, snapshot: 2 }[n.kind] ?? 3;
@@ -145,10 +176,14 @@ class FlowModel {
       positions: {},
       planned: this.state.planned,
       plannedEdges: this.state.plannedEdges,
+      hidden: {},
     };
     // Keep positions only for nodes that still exist, so the file stays tidy.
     for (const [id, p] of Object.entries(this.state.positions)) {
       if (this.nodes.has(id) || this.state.planned[id]) out.positions[id] = p;
+    }
+    for (const [id, kind] of Object.entries(this.state.hidden || {})) {
+      if (this.nodes.has(id)) out.hidden[id] = kind;
     }
     this.lastSavedText = JSON.stringify(out, null, 2) + '\n';
     this.io.writeText(this.statePath, this.lastSavedText);
@@ -162,8 +197,18 @@ class FlowModel {
 
   // ---------------------------------------------------------------- view
 
+  /**
+   * A box removed from the canvas stays hidden only while it is the same kind
+   * of thing: a hidden red box comes back if a model with that name is created,
+   * and a hidden model comes back red if its file is deleted while still used.
+   */
+  isHidden(n) {
+    return !!n && (this.state.hidden || {})[n.id] === n.kind;
+  }
+
   getView() {
-    const nodes = [...this.nodes.values()].map((n) => {
+    const hiddenCount = [...this.nodes.values()].filter((n) => this.isHidden(n)).length;
+    const nodes = [...this.nodes.values()].filter((n) => !this.isHidden(n)).map((n) => {
       const p = this.state.positions[n.id] || { x: 0, y: 0 };
       return {
         id: n.id,
@@ -188,8 +233,9 @@ class FlowModel {
         modelDirExists: this.cfg.modelDirs.some((d) => d.exists),
       },
       nodes,
-      edges: this.edges,
+      edges: this.edges.filter((e) => !this.isHidden(this.nodes.get(e.from)) && !this.isHidden(this.nodes.get(e.to))),
       plannedCount: nodes.filter((n) => n.kind === 'planned').length,
+      hiddenCount,
       duplicates: this.scan ? this.scan.duplicates : [],
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
@@ -378,6 +424,29 @@ class FlowModel {
     });
   }
 
+  /**
+   * Removes a box from the canvas without touching any file. Boxes without a
+   * file are deleted for real (see deleteBox); everything else is hidden.
+   */
+  removeFromCanvas(id) {
+    const n = this.nodes.get(id);
+    if (!n) return { ok: false, message: `${id} is not on the canvas.` };
+    if (n.kind === 'planned') return this.deleteBox(id);
+    return this.transact(`Remove ${n.name} from canvas`, () => {
+      this.state.hidden = this.state.hidden || {};
+      this.state.hidden[id] = n.kind;
+      return { ok: true, kind: n.kind, usedBy: n.kind === 'missing' ? this.referencingFiles(id).map((f) => f.rel) : [] };
+    });
+  }
+
+  showHidden() {
+    const ids = [...this.nodes.values()].filter((n) => this.isHidden(n)).map((n) => n.id);
+    if (!ids.length) return { ok: true };
+    return this.transact(`Show ${ids.length} hidden box${ids.length > 1 ? 'es' : ''}`, () => {
+      for (const id of ids) delete this.state.hidden[id];
+    });
+  }
+
   // ---------------------------------------------------------------- positions
 
   /** Every box moves freely; each move is one undo step. Moving never changes SQL. */
@@ -395,6 +464,10 @@ class FlowModel {
     const s = this.state;
     if (s.positions[oldId]) s.positions[newId] = s.positions[oldId];
     delete s.positions[oldId];
+    if (s.hidden && s.hidden[oldId]) {
+      s.hidden[newId] = s.hidden[oldId];
+      delete s.hidden[oldId];
+    }
     for (const e of s.plannedEdges) {
       if (e.from === oldId) e.from = newId;
       if (e.to === oldId) e.to = newId;
@@ -481,12 +554,39 @@ class FlowModel {
     return { oldName, newName, usedBy: this.referencingFiles(oldName).map((f) => f.rel) };
   }
 
+  /** Lays out the boxes on the canvas left to right. Removed boxes keep their old spot. */
   tidy() {
-    const ids = [...this.nodes.keys()];
-    const laid = layeredLayout(ids, this.edges, (id) => this.sortKey(id));
+    const ids = [...this.nodes.values()].filter((n) => !this.isHidden(n)).map((n) => n.id);
+    const laid = this.layout(ids);
     return this.transact('Tidy up layout', () => {
       for (const id of ids) this.state.positions[id] = laid[id];
     });
+  }
+
+  /**
+   * Re-reads every file, puts every model, source, seed and snapshot on the
+   * canvas (including boxes removed earlier) and lays them all out. One undo step.
+   */
+  syncFromFiles() {
+    this.refresh();
+    const ids = [...this.nodes.keys()];
+    const laid = this.layout(ids);
+    const nodes = [...this.nodes.values()];
+    const summary = {
+      models: nodes.filter((n) => n.kind === 'model').length,
+      sources: nodes.filter((n) => n.kind === 'source').length,
+      seeds: nodes.filter((n) => n.kind === 'seed').length,
+      snapshots: nodes.filter((n) => n.kind === 'snapshot').length,
+      missing: nodes.filter((n) => n.kind === 'missing').map((n) => n.id),
+      connections: this.edges.filter((e) => !e.planned).length,
+    };
+    const result = this.transact('Sync with files', () => {
+      this.state.hidden = {};
+      for (const id of ids) this.state.positions[id] = laid[id];
+      return { ok: true, summary };
+    });
+    // Nothing moved and nothing was hidden: still report what was found.
+    return result.summary ? result : { ok: true, summary };
   }
 
   // ---------------------------------------------------------------- connections

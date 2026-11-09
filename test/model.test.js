@@ -199,6 +199,132 @@ test('renamed in Explorer: new name keeps the box, no ghost after refs are updat
   assert.equal(m.fileRenamed(newAbs, path.join(root, 'model/marts/orders.sql')), null);
 });
 
+test('deleting a .sql file leaves a red box; removing it from the canvas hides it', () => {
+  const root = fixture(PROJECT);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  fs.unlinkSync(path.join(root, 'model/staging/stg_orders.sql'));
+  m.refresh();
+  let red = m.getView().nodes.find((n) => n.id === 'stg_orders');
+  assert.equal(red.kind, 'missing'); // fct_orders still uses ref('stg_orders')
+  const r = m.removeFromCanvas('stg_orders');
+  assert.ok(r.ok, r.message);
+  assert.deepEqual(r.usedBy, ['model/marts/fct_orders.sql']);
+  let v = m.getView();
+  assert.ok(!v.nodes.some((n) => n.id === 'stg_orders'));
+  assert.ok(!v.edges.some((e) => e.from === 'stg_orders'));
+  assert.equal(v.hiddenCount, 1);
+  // SQL is untouched.
+  assert.match(read(root, 'model/marts/fct_orders.sql'), /ref\('stg_orders'\)/);
+  // Survives a reload.
+  const again = new FlowModel(createNodeIO());
+  again.open(root);
+  assert.ok(!again.getView().nodes.some((n) => n.id === 'stg_orders'));
+  // Creating the model again brings it back as a normal box.
+  fs.writeFileSync(path.join(root, 'model/staging/stg_orders.sql'), 'select 1\n');
+  again.refresh();
+  assert.equal(again.getView().nodes.find((n) => n.id === 'stg_orders').kind, 'model');
+});
+
+test('removing a box that has a file only hides it; the file stays; undo and show bring it back', () => {
+  const root = fixture(PROJECT);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  assert.ok(m.removeFromCanvas('fct_orders').ok);
+  assert.ok(fs.existsSync(path.join(root, 'model/marts/fct_orders.sql')));
+  let v = m.getView();
+  assert.ok(!v.nodes.some((n) => n.id === 'fct_orders'));
+  assert.ok(!v.edges.some((e) => e.to === 'fct_orders' || e.from === 'fct_orders'));
+  m.undo();
+  assert.ok(m.getView().nodes.some((n) => n.id === 'fct_orders'));
+  m.redo();
+  assert.ok(m.removeFromCanvas('source:shop.orders').ok);
+  assert.equal(m.getView().hiddenCount, 2);
+  assert.ok(m.showHidden().ok);
+  v = m.getView();
+  assert.equal(v.hiddenCount, 0);
+  assert.ok(v.nodes.some((n) => n.id === 'fct_orders') && v.nodes.some((n) => n.id === 'source:shop.orders'));
+  // A box without a file is deleted for real.
+  m.createBox('stg_new', { modelDir: 'model', folder: 'staging' }, 0, 0);
+  assert.ok(m.removeFromCanvas('stg_new').ok);
+  assert.equal(m.getView().hiddenCount, 0);
+  assert.ok(!m.getView().nodes.some((n) => n.id === 'stg_new'));
+});
+
+test('sync with files: an emptied canvas gets every model back, laid out left to right', () => {
+  // Mirrors Alex's tpch_dbt test project: everything removed from the canvas,
+  // and the prep models ref() names that have no file.
+  const prep = "with\n\nsource as (\n    select * from {{ ref('source') }}\n),\n\ntest as (\n    select * from {{ ref('test') }}\n)\n\nselect * from test\n";
+  const files = {
+    'dbt_project.yml': "name: 'tpch_dbt'\nmodel-paths: [\"models\"]\n",
+    'models/staging/source1.sql': 'select\n    1 as id\n',
+    'models/staging/source2.sql': 'select 2\n',
+    'models/staging/source3.sql': 'select 3\n',
+    'models/staging/source4.sql': 'select 4\n',
+    'models/prep/prep1.sql': prep,
+    'models/prep/prep2.sql': prep,
+    'models/mart/mart.sql': "select * from {{ ref('prep1') }} join {{ ref('prep2') }}\n",
+  };
+  const hidden = { source: 'missing', test: 'missing', source1: 'model', source2: 'model', source3: 'model',
+    source4: 'model', prep1: 'model', prep2: 'model', mart: 'model' };
+  files['.dbtflow.json'] = JSON.stringify({ version: 1, positions: {}, planned: {}, plannedEdges: [], hidden });
+  const root = fixture(files);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  assert.equal(m.getView().nodes.length, 0);
+  assert.equal(m.getView().hiddenCount, 9);
+
+  const r = m.syncFromFiles();
+  assert.ok(r.ok, r.message);
+  assert.deepEqual(r.summary, { models: 7, sources: 0, seeds: 0, snapshots: 0, missing: ['source', 'test'], connections: 6 });
+  const v = m.getView();
+  assert.equal(v.hiddenCount, 0);
+  assert.equal(v.nodes.length, 9);
+  const x = Object.fromEntries(v.nodes.map((n) => [n.id, n.x]));
+  assert.ok(x.source < x.prep1 && x.prep1 < x.mart, 'flows left to right');
+  // Files are untouched.
+  assert.equal(read(root, 'models/prep/prep1.sql'), prep);
+  // One undo empties the canvas again.
+  m.undo();
+  assert.equal(m.getView().nodes.length, 0);
+});
+
+test('layout keeps dbt folder layers in order even without refs between them', () => {
+  // Alex's tpch_dbt as it is: mart.sql is empty, prep refs names with no file.
+  const prep = "select * from {{ ref('source') }} join {{ ref('test') }}\n";
+  const root = fixture({
+    'dbt_project.yml': "name: 'tpch_dbt'\n",
+    'models/staging/source1.sql': 'select 1\n',
+    'models/staging/source2.sql': 'select 1\n',
+    'models/prep/prep1.sql': prep,
+    'models/prep/prep2.sql': prep,
+    'models/mart/mart.sql': '',
+    'models/loose.sql': 'select 1\n',
+  });
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  m.syncFromFiles();
+  const x = Object.fromEntries(m.getView().nodes.map((n) => [n.id, n.x]));
+  assert.ok(x.source1 < x.prep1, 'staging left of prep');
+  assert.ok(x.prep1 < x.mart, 'prep left of mart');
+  assert.equal(x.source, x.source1, 'red refs sit next to what uses them');
+  assert.equal(x.source1, x.source2);
+  assert.equal(x.loose, x.source1, 'a model outside any layer folder shares the first model column');
+  // No empty columns: three layers in use, so three columns.
+  assert.equal(new Set(Object.values(x)).size, 3);
+});
+
+test('tidy lays out only the boxes on the canvas', () => {
+  const root = fixture(PROJECT);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  m.removeFromCanvas('fct_orders');
+  m.moveNode('fct_orders', 5000, 5000); // moving a hidden box is allowed but not shown
+  const hiddenPos = { ...m.state.positions.fct_orders };
+  m.tidy();
+  assert.deepEqual(m.state.positions.fct_orders, hiddenPos);
+});
+
 test('empty project: plan boxes, connect, create all files', () => {
   const root = fixture({ 'dbt_project.yml': 'name: fresh\n', 'models/staging/.gitkeep': '', 'models/marts/.gitkeep': '' });
   const m = new FlowModel(createNodeIO());

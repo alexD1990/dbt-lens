@@ -290,13 +290,6 @@ button.primary svg {
   pointer-events: none;
 }
 
-.ghost-link {
-  stroke: var(--muted);
-  stroke-width: 1;
-  stroke-dasharray: 1 5;
-  opacity: 0.8;
-}
-
 /* ------------------------------------------------------------ boxes */
 
 .node {
@@ -392,32 +385,6 @@ button.primary svg {
   background: color-mix(in srgb, var(--c) 14%, transparent);
 }
 
-.node .lock {
-  position: absolute;
-  top: 6px;
-  right: 7px;
-  width: 12px;
-  height: 12px;
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity 140ms;
-}
-
-.node .lock svg {
-  display: block;
-  width: 12px;
-  height: 12px;
-}
-
-.node:hover .lock {
-  opacity: 0.7;
-}
-
-.node.unlocked .lock {
-  opacity: 1;
-  color: var(--c);
-}
-
 /* Sources are where data enters the project: rounded ends. */
 .node.k-source {
   border-radius: 30px;
@@ -465,12 +432,6 @@ button.primary svg {
   z-index: 2;
 }
 
-.node.unlocked {
-  box-shadow:
-    0 0 calc(20px * var(--glow)) color-mix(in srgb, var(--c) calc(30% * var(--glow)), transparent),
-    0 10px 24px rgba(0, 0, 0, 0.35);
-}
-
 .node.dragging {
   cursor: grabbing;
   z-index: 3;
@@ -479,17 +440,33 @@ button.primary svg {
     0 14px 30px rgba(0, 0, 0, 0.4);
 }
 
-/* The model whose file is open in the editor. */
-.node.active::after {
-  content: '';
-  position: absolute;
-  left: 56px;
-  right: 18px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
+/* The model whose file is open in the editor: the whole box lights up.
+   A selected box has a ring instead, so the two can be told apart. */
+.node.active {
+  z-index: 1;
+  border-color: var(--c);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--c) 32%, var(--card)),
+    color-mix(in srgb, var(--c) 16%, var(--card)) 70%
+  );
+  box-shadow:
+    0 0 calc(40px * var(--glow) + 6px) color-mix(in srgb, var(--c) calc(55% * var(--glow) + 20%), transparent),
+    0 0 calc(12px * var(--glow) + 2px) color-mix(in srgb, var(--c) calc(45% * var(--glow) + 15%), transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
+}
+
+.node.active .tile {
+  color: var(--card);
   background: var(--c);
-  box-shadow: 0 0 8px var(--c);
+  border-color: var(--c);
+}
+
+.node.active.selected {
+  box-shadow:
+    0 0 0 1.5px var(--c),
+    0 0 calc(40px * var(--glow) + 6px) color-mix(in srgb, var(--c) calc(55% * var(--glow) + 20%), transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
 }
 
 .node.match {
@@ -537,27 +514,6 @@ button.primary svg {
 
 .port.out:hover {
   transform: scale(1.4);
-}
-
-/* Where an unlocked box goes back to. */
-.ghost {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 220px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  padding-left: 56px;
-  border-radius: var(--radius);
-  border: 1.5px dashed color-mix(in srgb, var(--c) 50%, transparent);
-  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 8%, transparent) 0 6px, transparent 6px 12px);
-  cursor: pointer;
-}
-
-.ghost-label {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* ------------------------------------------------------------ floating controls */
@@ -701,12 +657,6 @@ button.primary svg {
   background: none;
   box-shadow: none;
   border: 1.5px dashed var(--c);
-}
-
-.sw.ghosted {
-  box-shadow: none;
-  border: 1px dashed var(--c);
-  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 30%, transparent) 0 2px, transparent 2px 4px);
 }
 
 /* Narrow side bar or panel: keep the canvas clear. */

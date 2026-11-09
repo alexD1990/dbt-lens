@@ -125,10 +125,10 @@ async function main() {
         break;
       }
       case 'move': r = model.moveNode(msg.id, msg.x, msg.y); break;
-      case 'unlock': r = model.unlock(msg.id); break;
-      case 'lockHere': r = model.lockHere(msg.id); break;
-      case 'revert': r = model.revert(msg.id); break;
-      case 'revertAll': r = model.revertAll(); break;
+      case 'rename': r = model.renameModel(msg.id, ask()); break;
+      case 'retarget': r = model.retargetRefs(msg.id, ask()); break;
+      case 'removeFromCanvas': r = model.removeFromCanvas(msg.id); break;
+      case 'showHidden': r = model.showHidden(); break;
       case 'tidy': r = model.tidy(); break;
       case 'undo': r = model.undo(); break;
       case 'redo': r = model.redo(); break;
@@ -147,7 +147,7 @@ async function main() {
   const html = (theme, surface) => `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>:root{${vars(theme)}}</style>
 <link rel="stylesheet" href="file://${path.join(__dirname, '../media/main.css')}"></head>
-<body data-surface="${surface}"><div id="app"></div>
+<body class="${theme === LIGHT ? 'vscode-light' : 'vscode-dark'}" data-surface="${surface}"><div id="app"></div>
 <script>window.acquireVsCodeApi=()=>({postMessage:(m)=>window.__toHost(m),getState:()=>null,setState:()=>{}});</script>
 <script src="file://${path.join(__dirname, '../media/main.js')}"></script></body></html>`;
 
@@ -172,31 +172,41 @@ async function main() {
   await shot('02-lineage');
   await page.keyboard.press('Escape');
 
-  // 3. Locked box refuses to move, then unlock via context menu and drag.
-  b = await box('dim_customers');
-  await page.mouse.move(b.x + 60, b.y + 20);
-  await page.mouse.down();
-  await page.mouse.move(b.x + 160, b.y + 120, { steps: 6 });
-  await page.mouse.up();
-  await page.waitForTimeout(150);
-  await shot('03-locked-hint');
-  await page.mouse.click(b.x + 60, b.y + 20, { button: 'right' });
-  await page.waitForSelector('.menu:not([hidden])');
-  await shot('04-node-menu');
-  await page.locator('.menu-item', { hasText: 'Unlock to move' }).click();
-  await page.waitForTimeout(100);
+  const canvas0 = await page.locator('#viewport').boundingBox();
+  // 3. Boxes move freely; right-click menus for a model and a missing ref.
   b = await box('dim_customers');
   await page.mouse.move(b.x + 60, b.y + 20);
   await page.mouse.down();
   await page.mouse.move(b.x + 120, b.y + 190, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(200);
-  await shot('05-unlocked-ghost');
+  await shot('03-moved');
+  b = await box('dim_customers');
+  await page.mouse.click(b.x + 60, b.y + 20, { button: 'right' });
+  await page.waitForSelector('.menu:not([hidden])');
+  await shot('04-node-menu');
+  answers.push('dim_customer');
+  await page.locator('.menu-item', { hasText: 'Rename' }).click();
+  await page.waitForSelector('.node[data-id="dim_customer"]');
+  b = await box('customer_segments');
+  await page.mouse.click(b.x + 60, b.y + 20, { button: 'right' });
+  await page.waitForSelector('.menu:not([hidden])');
+  await shot('05-missing-menu');
+  await page.keyboard.press('Escape');
+  await page.mouse.click(b.x + 60, b.y + 20);
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(150);
+  await shot('05b-missing-removed');
+  await page.mouse.click(canvas0.x + 600, canvas0.y + 650, { button: 'right' });
+  await page.waitForSelector('.menu:not([hidden])');
+  await shot('05c-canvas-menu-show-removed');
+  await page.locator('.menu-item', { hasText: 'Show removed boxes' }).click();
+  await page.waitForTimeout(150);
 
   // 4. Plan new boxes on the canvas, connect them, create files.
   const canvas = await page.locator('#viewport').boundingBox();
   answers.push('fct_revenue');
-  await page.mouse.click(canvas.x + canvas.width - 170, canvas.y + 120, { button: 'right' });
+  await page.mouse.click(canvas.x + canvas.width - 300, canvas.y + 150, { button: 'right' });
   await page.waitForSelector('.menu:not([hidden])');
   await shot('06-canvas-menu');
   await page.locator('.menu-item', { hasText: 'Create new box' }).click();
