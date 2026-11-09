@@ -1,61 +1,73 @@
-// dbt Flow canvas. Runs inside the VS Code webview; all changes go to the extension.
+// dbt Flow canvas. Runs inside the VS Code webview; every change is sent to the extension.
 (function () {
   'use strict';
 
   const vscode = acquireVsCodeApi();
   const W = 220;
-  const H = 58;
+  const H = 60;
   const GRID = 10;
   const MIN_K = 0.15;
   const MAX_K = 2.5;
+  const MAX_GLOW_EDGES = 400; // above this, edges are drawn without the glow filter
 
-  // Folder colours. Known dbt layer names get their conventional colour,
+  // Folder colours. Known dbt layer names get their usual colour,
   // other folders take the next colour from the palette.
   const KNOWN = [
-    [/^(stag|stg|base|src|sources?$|raw)/, '#4E8FD8'],
-    [/^(int|intermediate)/, '#9B6BD6'],
-    [/^(mart|report|fact|dim|core|gold|presentation)/, '#E0943A'],
+    [/^(stag|stg|base|src|sources?$|raw)/, '#4F9BFF'],
+    [/^(int|intermediate)/, '#A97BFF'],
+    [/^(mart|report|fact|dim|core|gold|presentation)/, '#FF9F43'],
   ];
-  const PALETTE = ['#3BA7A0', '#D4597A', '#7FA845', '#5B7FD6', '#C77B3A', '#A178C9', '#4FA3C7'];
-  const ROOT = '#8B95A5';
-  const KIND_COLOR = { source: '#3FA37A', seed: '#B89B3E', snapshot: '#8B95A5', missing: 'var(--vscode-errorForeground)' };
+  const PALETTE = ['#2DD4BF', '#F472B6', '#A3E635', '#818CF8', '#FB923C', '#C084FC', '#38BDF8'];
+  const ROOT = '#94A3B8';
+  const KIND_COLOR = { source: '#34D399', seed: '#FACC15', snapshot: '#94A3B8', missing: '#F85149' };
 
-  const I = {
-    search: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/></svg>',
-    undo: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3.5 2 6l2.5 2.5"/><path d="M2.5 6H10a3.5 3.5 0 0 1 0 7H6"/></svg>',
-    redo: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 3.5 14 6l-2.5 2.5"/><path d="M13.5 6H6a3.5 3.5 0 0 0 0 7h4"/></svg>',
-    tidy: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="4" height="3" rx=".6"/><rect x="1.5" y="10.5" width="4" height="3" rx=".6"/><rect x="10.5" y="6.5" width="4" height="3" rx=".6"/><path d="M5.5 4h2.5v8H5.5M8 8h2.5"/></svg>',
-    fit: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="5.5" width="6" height="5" rx=".6"/></svg>',
-    plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
-    lockOpen: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7.5" width="10" height="6.5" rx="1.2"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 4.8-1"/></svg>',
-    lock: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7.5" width="10" height="6.5" rx="1.2"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5"/></svg>',
+  const ICON = {
+    // canvas tools
+    search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>',
+    undo: '<path d="M4.5 3.5 2 6l2.5 2.5"/><path d="M2.5 6H10a3.5 3.5 0 0 1 0 7H6"/>',
+    redo: '<path d="M11.5 3.5 14 6l-2.5 2.5"/><path d="M13.5 6H6a3.5 3.5 0 0 0 0 7h4"/>',
+    add: '<rect x="2" y="3.5" width="12" height="9" rx="2.5"/><path d="M8 6v4M6 8h4"/>',
+    tidy: '<rect x="1.5" y="2.5" width="4" height="3" rx=".8"/><rect x="1.5" y="10.5" width="4" height="3" rx=".8"/><rect x="10.5" y="6.5" width="4" height="3" rx=".8"/><path d="M5.5 4h2.5v8H5.5M8 8h2.5"/>',
+    fit: '<path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="5.5" width="6" height="5" rx="1"/>',
+    trash: '<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/>',
+    plus: '<path d="M8 3v10M3 8h10"/>',
+    minus: '<path d="M3 8h10"/>',
+    lock: '<rect x="3" y="7.5" width="10" height="6.5" rx="1.5"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5"/>',
+    lockOpen: '<rect x="3" y="7.5" width="10" height="6.5" rx="1.5"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 4.8-1"/>',
+    // box kinds
+    model: '<path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"/><path d="M2.5 5 8 8.2 13.5 5M8 8.2v6"/>',
+    table: '<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M2 6.6h12M6.6 6.6V13"/>',
+    view: '<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
+    incremental: '<path d="M2 7.5 8 4.5l6 3-6 3z"/><path d="M2 10.5l6 3 6-3"/>',
+    ephemeral: '<circle cx="8" cy="8" r="5.5" stroke-dasharray="2.2 2"/>',
+    python: '<path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4"/>',
+    source: '<ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>',
+    seed: '<path d="M4 1.8h5l3 3V14H4z"/><path d="M9 1.8v3h3M6 8.5h4M6 11h4"/>',
+    snapshot: '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2 1.3"/>',
+    planned: '<path d="M8 4.5v7M4.5 8h7"/>',
+    missing: '<path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3M8 11.6v.1"/>',
   };
+  const svgIcon = (name) => `<svg viewBox="0 0 16 16" aria-hidden="true">${ICON[name]}</svg>`;
 
   // ------------------------------------------------------------------ DOM
 
   const app = document.getElementById('app');
   app.innerHTML = `
     <header class="bar">
-      <div class="bar-left">
-        <button class="project" id="project" title="Choose dbt project"></button>
-        <label class="search">${I.search}<input id="search" type="search" placeholder="Find a model" spellcheck="false" aria-label="Find a model"></label>
-      </div>
-      <div class="bar-right">
-        <button class="icon" id="btn-undo" aria-label="Undo">${I.undo}</button>
-        <button class="icon" id="btn-redo" aria-label="Redo">${I.redo}</button>
-        <span class="divider"></span>
-        <button class="icon" id="btn-tidy" title="Tidy up layout" aria-label="Tidy up layout">${I.tidy}</button>
-        <button class="icon" id="btn-fit" title="Fit to view (F)" aria-label="Fit to view">${I.fit}</button>
-        <button class="primary" id="btn-create-all" hidden></button>
-      </div>
+      <button class="project" id="project" title="Choose dbt project"></button>
+      <label class="search">${svgIcon('search')}<input id="search" type="search" placeholder="Find a model" spellcheck="false" aria-label="Find a model"></label>
+      <span class="spacer"></span>
+      <button class="primary" id="btn-create-all" hidden></button>
     </header>
     <div class="banner" id="banner" hidden></div>
     <main class="viewport" id="viewport" tabindex="0" aria-label="Model canvas">
       <div class="world" id="world">
         <svg class="edges" id="edges" width="1" height="1" aria-hidden="true">
-          <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrow" d="M0,1 L9,5 L0,9 z"/></marker>
-            <marker id="arrow-hl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrow-hl" d="M0,1 L9,5 L0,9 z"/></marker>
+          <defs id="defs">
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="2.4" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
           </defs>
           <g id="ghost-links"></g>
           <g id="edge-layer"></g>
@@ -65,8 +77,22 @@
         <div id="node-layer"></div>
       </div>
       <div class="empty" id="empty" hidden></div>
+      <nav class="hud tools" aria-label="Canvas tools">
+        <button class="icon" id="btn-undo" aria-label="Undo">${svgIcon('undo')}</button>
+        <button class="icon" id="btn-redo" aria-label="Redo">${svgIcon('redo')}</button>
+        <span class="hud-sep"></span>
+        <button class="icon" id="btn-add" title="Create new box" aria-label="Create new box">${svgIcon('add')}</button>
+        <button class="icon" id="btn-tidy" title="Tidy up layout" aria-label="Tidy up layout">${svgIcon('tidy')}</button>
+        <button class="icon" id="btn-fit" title="Fit to view (F)" aria-label="Fit to view">${svgIcon('fit')}</button>
+        <button class="icon" id="btn-delete" aria-label="Delete selected box">${svgIcon('trash')}</button>
+      </nav>
+      <div class="hud minimap" id="minimap" title="Click or drag to move around"><canvas id="minimap-canvas"></canvas></div>
+      <div class="hud zoombox">
+        <button class="icon" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in">${svgIcon('plus')}</button>
+        <button class="zoom-level" id="zoom" title="Reset zoom to 100%"></button>
+        <button class="icon" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">${svgIcon('minus')}</button>
+      </div>
       <details class="legend" id="legend"><summary>Legend</summary><div id="legend-body"></div></details>
-      <button class="zoom" id="zoom" title="Reset zoom to 100%"></button>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </main>
     <div class="menu" id="menu" role="menu" hidden></div>`;
@@ -74,6 +100,7 @@
   const $ = (id) => document.getElementById(id);
   const viewport = $('viewport');
   const world = $('world');
+  const defs = $('defs');
   const edgeLayer = $('edge-layer');
   const ghostLinks = $('ghost-links');
   const tempEdge = $('temp-edge');
@@ -81,13 +108,15 @@
   const ghostLayer = $('ghost-layer');
   const menu = $('menu');
   const toastEl = $('toast');
+  const minimap = $('minimap');
+  const miniCanvas = $('minimap-canvas');
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
   // ------------------------------------------------------------------ state
 
   const saved = vscode.getState() || {};
   let view = null;
-  let t = saved.t || null;
+  let t = saved.t || { x: 0, y: 0, k: 1 };
   const hadSavedView = !!saved.t;
   let selected = saved.selected || null;
   let activeId = null;
@@ -95,7 +124,7 @@
   let colors = new Map();
   const pos = new Map(); // live positions, updated while dragging
   const nodeEls = new Map();
-  const edgeEls = []; // { e, path, hit }
+  const edgeEls = []; // { e, g, line, pulse, hit, grad }
   let drag = null;
 
   const persist = () => vscode.setState({ t, selected });
@@ -122,6 +151,12 @@
     }
   }
 
+  function iconFor(n) {
+    if (n.kind !== 'model') return n.kind;
+    if (n.language === 'python') return 'python';
+    return ICON[n.materialized] ? n.materialized : 'model';
+  }
+
   function toWorld(cx, cy) {
     const r = viewport.getBoundingClientRect();
     return { x: (cx - r.left - t.x) / t.k, y: (cy - r.top - t.y) / t.k };
@@ -131,14 +166,39 @@
 
   function applyTransform() {
     world.style.transform = `translate(${t.x}px, ${t.y}px) scale(${t.k})`;
-    const g = 20 * t.k;
+    const g = 22 * t.k;
     viewport.style.backgroundSize = `${g}px ${g}px`;
     viewport.style.backgroundPosition = `${t.x}px ${t.y}px`;
     $('zoom').textContent = Math.round(t.k * 100) + '%';
+    drawMinimap();
     persist();
   }
 
-  // `readable` keeps text legible on first open in a narrow sidebar: if the whole
+  function zoomAt(k, px, py) {
+    k = Math.min(MAX_K, Math.max(MIN_K, k));
+    t.x = px - ((px - t.x) * k) / t.k;
+    t.y = py - ((py - t.y) * k) / t.k;
+    t.k = k;
+    applyTransform();
+  }
+
+  function zoomCenter(k) {
+    const r = viewport.getBoundingClientRect();
+    zoomAt(k, r.width / 2, r.height / 2);
+  }
+
+  function bounds() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pos.values()) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + W);
+      maxY = Math.max(maxY, p.y + H);
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  // `readable` keeps text legible on first open in a narrow area: if the whole
   // graph does not fit at that zoom, it starts at the sources and you pan from there.
   function fit(readable) {
     const r = viewport.getBoundingClientRect();
@@ -146,22 +206,16 @@
       t = { x: r.width / 2, y: r.height / 2, k: 1 };
       return applyTransform();
     }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of view.nodes) {
-      const p = pos.get(n.id);
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + W);
-      maxY = Math.max(maxY, p.y + H);
-    }
-    const pad = 48;
+    const { minX, minY, maxX, maxY } = bounds();
+    const padX = 64;
+    const padY = 56;
     const floor = readable === true ? 0.55 : MIN_K;
-    const k = Math.max(floor, Math.min(1.1, (r.width - pad * 2) / (maxX - minX), (r.height - pad * 2) / (maxY - minY)));
-    const fitsX = (maxX - minX) * k <= r.width - pad;
-    const fitsY = (maxY - minY) * k <= r.height - pad;
+    const k = Math.max(floor, Math.min(1.1, (r.width - padX * 2) / (maxX - minX), (r.height - padY * 2) / (maxY - minY)));
+    const fitsX = (maxX - minX) * k <= r.width - padX;
+    const fitsY = (maxY - minY) * k <= r.height - padY;
     t = {
       k,
-      x: fitsX ? (r.width - (maxX - minX) * k) / 2 - minX * k : 24 - minX * k,
+      x: fitsX ? (r.width - (maxX - minX) * k) / 2 - minX * k : 64 - minX * k,
       y: fitsY ? (r.height - (maxY - minY) * k) / 2 - minY * k : r.height / 2 - ((minY + maxY) / 2) * k,
     };
     applyTransform();
@@ -211,7 +265,7 @@
       case 'snapshot':
         return { meta: 'snapshots', chip: 'snapshot' };
       case 'missing':
-        return { meta: 'no model with this name', chip: 'not found' };
+        return { meta: 'no model with this name', chip: null };
       default:
         return {
           meta: n.folder || modelRoot,
@@ -236,18 +290,25 @@
       node.style.transform = `translate(${n.x}px, ${n.y}px)`;
       node.title = n.rel ? n.rel : n.kind === 'planned' ? 'Box without a file. Right-click to create the file.' : n.name;
 
-      const { meta, chip } = describe(n);
       // Only boxes that can depend on something get an input port.
       if (n.kind !== 'source' && n.kind !== 'seed' && n.kind !== 'missing') node.append(el('span', 'port in'));
-      const title = el('div', 'title', n.name);
-      node.append(title);
+
+      const tile = el('span', 'tile');
+      tile.innerHTML = svgIcon(iconFor(n));
+      node.append(tile);
+
+      const { meta, chip } = describe(n);
+      const text = el('span', 'text');
+      text.append(el('div', 'title', n.name));
       const metaRow = el('div', 'meta');
       metaRow.append(el('span', 'path', meta));
       if (chip) metaRow.append(el('span', 'chip', chip));
-      node.append(metaRow);
+      text.append(metaRow);
+      node.append(text);
+
       if (n.kind !== 'planned' && n.kind !== 'missing') {
         const lock = el('span', 'lock');
-        lock.innerHTML = n.locked ? I.lock : I.lockOpen;
+        lock.innerHTML = svgIcon(n.locked ? 'lock' : 'lockOpen');
         lock.title = n.locked ? 'Locked in place' : 'Moved. Right-click to put it back or lock it here.';
         node.append(lock);
       }
@@ -266,47 +327,71 @@
       }
     }
 
+    // Each connection fades from the colour of the box it leaves to the box it enters.
     edgeLayer.textContent = '';
+    defs.querySelectorAll('linearGradient').forEach((g) => g.remove());
     edgeEls.length = 0;
-    for (const e of view.edges) {
+    edgeLayer.setAttribute('filter', view.edges.length <= MAX_GLOW_EDGES ? 'url(#glow)' : '');
+    const byId = new Map(view.nodes.map((n) => [n.id, n]));
+    view.edges.forEach((e, i) => {
+      const grad = svg('linearGradient');
+      grad.id = 'eg' + i;
+      grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+      const s1 = svg('stop');
+      s1.setAttribute('offset', '0');
+      s1.setAttribute('stop-color', colorOf(byId.get(e.from)));
+      const s2 = svg('stop');
+      s2.setAttribute('offset', '1');
+      s2.setAttribute('stop-color', colorOf(byId.get(e.to)));
+      grad.append(s1, s2);
+      defs.append(grad);
+
       const g = svg('g', 'edge' + (e.planned ? ' planned' : ''));
-      const path = svg('path', 'line');
-      path.setAttribute('marker-end', 'url(#arrow)');
+      const line = svg('path', 'line');
+      line.setAttribute('stroke', `url(#eg${i})`);
+      const pulse = svg('path', 'pulse');
       const hit = svg('path', 'edge-hit');
       hit.dataset.from = e.from;
       hit.dataset.to = e.to;
-      g.append(path, hit);
+      g.append(line, pulse, hit);
       edgeLayer.append(g);
-      edgeEls.push({ e, g, path, hit });
-    }
+      edgeEls.push({ e, g, line, pulse, hit, grad });
+    });
     updateEdges();
     renderChrome();
     applyHighlight();
+    drawMinimap();
   }
 
   function edgeD(a, b) {
-    const x1 = a.x + W;
+    const x1 = a.x + W + 4;
     const y1 = a.y + H / 2;
-    const x2 = b.x - 2;
+    const x2 = b.x - 4;
     const y2 = b.y + H / 2;
     const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-    return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+    return { d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`, x1, y1, x2, y2 };
   }
 
   function updateEdges(onlyId) {
-    for (const { e, path, hit } of edgeEls) {
+    for (const { e, line, pulse, hit, grad } of edgeEls) {
       if (onlyId && e.from !== onlyId && e.to !== onlyId) continue;
-      const d = edgeD(pos.get(e.from), pos.get(e.to));
-      path.setAttribute('d', d);
+      const { d, x1, y1, x2, y2 } = edgeD(pos.get(e.from), pos.get(e.to));
+      line.setAttribute('d', d);
+      pulse.setAttribute('d', d);
       hit.setAttribute('d', d);
+      // A gradient across zero width is invisible, so give vertical links a nudge.
+      grad.setAttribute('x1', x1);
+      grad.setAttribute('y1', y1);
+      grad.setAttribute('x2', Math.abs(x2 - x1) < 1 ? x2 + 1 : x2);
+      grad.setAttribute('y2', y2);
     }
     ghostLinks.textContent = '';
     for (const n of view.nodes) {
       if (!n.home) continue;
       const p = pos.get(n.id);
-      const line = svg('path', 'ghost-link');
-      line.setAttribute('d', `M${n.home.x + W / 2},${n.home.y + H / 2} L${p.x + W / 2},${p.y + H / 2}`);
-      ghostLinks.append(line);
+      const link = svg('path', 'ghost-link');
+      link.setAttribute('d', `M${n.home.x + W / 2},${n.home.y + H / 2} L${p.x + W / 2},${p.y + H / 2}`);
+      ghostLinks.append(link);
     }
   }
 
@@ -320,6 +405,7 @@
     redo.disabled = !view.canRedo;
     undo.title = view.canUndo ? `Undo: ${view.undoLabel} (Ctrl+Z)` : 'Nothing to undo';
     redo.title = view.canRedo ? `Redo: ${view.redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo';
+    updateDeleteButton();
 
     const createAll = $('btn-create-all');
     createAll.hidden = !view.plannedCount;
@@ -334,22 +420,30 @@
 
     const empty = $('empty');
     empty.hidden = view.nodes.length > 0;
+    minimap.hidden = view.nodes.length === 0;
     if (!view.nodes.length) {
       empty.innerHTML = '';
       empty.append(el('p', 'empty-title', 'No models yet'));
       empty.append(el('p', 'empty-text', 'Right-click anywhere to create a box. Connect boxes, then create the .sql files.'));
       const btn = el('button', 'primary');
-      btn.innerHTML = I.plus;
+      btn.innerHTML = svgIcon('plus');
       btn.append(document.createTextNode('Create new box'));
-      btn.addEventListener('click', () => {
-        const r = viewport.getBoundingClientRect();
-        const w = toWorld(r.left + r.width / 2, r.top + r.height / 2);
-        post({ type: 'createBoxAt', x: snap(w.x - W / 2), y: snap(w.y - H / 2) });
-      });
+      btn.addEventListener('click', createBoxInCenter);
       empty.append(btn);
     }
 
     renderLegend();
+  }
+
+  function updateDeleteButton() {
+    const del = $('btn-delete');
+    const n = selected && view ? view.nodes.find((x) => x.id === selected) : null;
+    del.disabled = !n || n.kind !== 'planned';
+    del.title = !n
+      ? 'Select a box to delete it'
+      : n.kind === 'planned'
+        ? `Delete ${n.name} (Del)`
+        : `${n.name} has a file. Delete the file to remove it.`;
   }
 
   function renderLegend() {
@@ -358,7 +452,7 @@
     const legend = $('legend');
     const modelRoot = (view.project && view.project.modelDirs[0]) || 'models';
     const rows = [];
-    // List folders in the order data flows through them (left to right).
+    // Folders in the order data flows through them (left to right).
     const avgX = (g) => {
       const xs = view.nodes.filter((n) => (n.kind === 'model' || n.kind === 'planned') && n.group === g).map((n) => n.x);
       return xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -369,8 +463,8 @@
     if (kinds.has('source')) rows.push({ label: 'sources', color: KIND_COLOR.source, cls: 'sw pill' });
     if (kinds.has('seed')) rows.push({ label: 'seeds', color: KIND_COLOR.seed, cls: 'sw' });
     if (kinds.has('snapshot')) rows.push({ label: 'snapshots', color: KIND_COLOR.snapshot, cls: 'sw' });
-    if (kinds.has('planned')) rows.push({ label: 'no file yet', color: 'var(--vscode-descriptionForeground)', cls: 'sw dashed' });
-    if (view.unlockedCount) rows.push({ label: 'moved, can be put back', color: 'var(--vscode-descriptionForeground)', cls: 'sw ghosted' });
+    if (kinds.has('planned')) rows.push({ label: 'no file yet', color: 'var(--muted)', cls: 'sw dashed' });
+    if (view.unlockedCount) rows.push({ label: 'moved, can be put back', color: 'var(--muted)', cls: 'sw ghosted' });
     if (kinds.has('missing')) rows.push({ label: 'ref to a model that does not exist', color: KIND_COLOR.missing, cls: 'sw dashed' });
     for (const r of rows) {
       const row = el('div', 'legend-row');
@@ -382,9 +476,97 @@
     legend.hidden = !rows.length;
     if (!legend.dataset.init && rows.length) {
       legend.dataset.init = '1';
-      legend.open = viewport.clientWidth > 520;
+      legend.open = viewport.clientWidth > 620;
     }
   }
+
+  // ------------------------------------------------------------------ minimap
+
+  let miniScale = null;
+
+  function drawMinimap() {
+    if (!view || !view.nodes.length || minimap.hidden || !minimap.offsetWidth) return;
+    const cw = miniCanvas.clientWidth;
+    const ch = miniCanvas.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    if (miniCanvas.width !== cw * dpr) {
+      miniCanvas.width = cw * dpr;
+      miniCanvas.height = ch * dpr;
+    }
+    const ctx = miniCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
+
+    const r = viewport.getBoundingClientRect();
+    const vis = { x: -t.x / t.k, y: -t.y / t.k, w: r.width / t.k, h: r.height / t.k };
+    const b = bounds();
+    const minX = Math.min(b.minX, vis.x);
+    const minY = Math.min(b.minY, vis.y);
+    const maxX = Math.max(b.maxX, vis.x + vis.w);
+    const maxY = Math.max(b.maxY, vis.y + vis.h);
+    const s = Math.min((cw - 8) / (maxX - minX), (ch - 8) / (maxY - minY));
+    const ox = (cw - (maxX - minX) * s) / 2 - minX * s;
+    const oy = (ch - (maxY - minY) * s) / 2 - minY * s;
+    miniScale = { s, ox, oy };
+
+    ctx.lineWidth = 1;
+    for (const n of view.nodes) {
+      const p = pos.get(n.id);
+      const c = colorOf(n);
+      const x = p.x * s + ox;
+      const y = p.y * s + oy;
+      const w = Math.max(3, W * s);
+      const h = Math.max(2, H * s);
+      ctx.globalAlpha = n.kind === 'planned' ? 0.35 : 0.85;
+      ctx.fillStyle = c;
+      roundRect(ctx, x, y, w, h, Math.min(3, h / 2));
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    const focus = getComputedStyle(document.body).getPropertyValue('--vscode-focusBorder').trim() || '#4F9BFF';
+    ctx.strokeStyle = focus;
+    ctx.fillStyle = focus;
+    ctx.globalAlpha = 0.12;
+    ctx.fillRect(vis.x * s + ox, vis.y * s + oy, vis.w * s, vis.h * s);
+    ctx.globalAlpha = 1;
+    ctx.strokeRect(vis.x * s + ox + 0.5, vis.y * s + oy + 0.5, vis.w * s - 1, vis.h * s - 1);
+  }
+
+  function roundRect(ctx, x, y, w, h, rad) {
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  function minimapJump(e) {
+    if (!miniScale) return;
+    const rc = miniCanvas.getBoundingClientRect();
+    const wx = (e.clientX - rc.left - miniScale.ox) / miniScale.s;
+    const wy = (e.clientY - rc.top - miniScale.oy) / miniScale.s;
+    const r = viewport.getBoundingClientRect();
+    t.x = r.width / 2 - wx * t.k;
+    t.y = r.height / 2 - wy * t.k;
+    applyTransform();
+  }
+
+  minimap.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    hideMenu();
+    minimap.setPointerCapture(e.pointerId);
+    minimap.dataset.drag = '1';
+    minimapJump(e);
+  });
+  minimap.addEventListener('pointermove', (e) => {
+    if (minimap.dataset.drag) minimapJump(e);
+  });
+  const endMini = () => delete minimap.dataset.drag;
+  minimap.addEventListener('pointerup', endMini);
+  minimap.addEventListener('pointercancel', endMini);
 
   // ------------------------------------------------------------------ highlight
 
@@ -426,17 +608,14 @@
       node.classList.toggle('match', !!match);
       node.classList.toggle('dim', (focus && !focus.has(id)) || (q && !match) || false);
     }
-    for (const { e, g, path } of edgeEls) {
-      let hl = false;
-      if (lin) {
-        const upSet = new Set([selected, ...lin.up]);
-        const downSet = new Set([selected, ...lin.down]);
-        hl = (upSet.has(e.from) && upSet.has(e.to)) || (downSet.has(e.from) && downSet.has(e.to));
-      }
+    const upSet = lin ? new Set([selected, ...lin.up]) : null;
+    const downSet = lin ? new Set([selected, ...lin.down]) : null;
+    for (const { e, g } of edgeEls) {
+      const hl = !!lin && ((upSet.has(e.from) && upSet.has(e.to)) || (downSet.has(e.from) && downSet.has(e.to)));
       g.classList.toggle('hl', hl);
       g.classList.toggle('dim', (lin && !hl) || !!q);
-      path.setAttribute('marker-end', hl ? 'url(#arrow-hl)' : 'url(#arrow)');
     }
+    updateDeleteButton();
     persist();
   }
 
@@ -465,7 +644,7 @@
       });
       menu.append(b);
     }
-    // Drop leading/trailing/double separators left by hidden items.
+    // Drop leading, trailing and doubled separators left by hidden items.
     const kids = [...menu.children];
     kids.forEach((k, i) => {
       if (k.classList.contains('menu-sep') && (i === 0 || i === kids.length - 1 || kids[i - 1].classList.contains('menu-sep'))) k.remove();
@@ -541,10 +720,26 @@
     applyHighlight();
   }
 
+  function createBoxInCenter() {
+    const r = viewport.getBoundingClientRect();
+    const w = toWorld(r.left + r.width / 2, r.top + r.height / 2);
+    // Nudge off any box already sitting in the middle.
+    let x = snap(w.x - W / 2);
+    let y = snap(w.y - H / 2);
+    while ([...pos.values()].some((p) => Math.abs(p.x - x) < W && Math.abs(p.y - y) < H + 10)) y += H + 30;
+    post({ type: 'createBoxAt', x, y });
+  }
+
+  function deleteSelected() {
+    const n = selected && nodeById(selected);
+    if (n && n.kind === 'planned') post({ type: 'deleteBox', id: n.id });
+    else if (n) toast(`${n.name} has a file. Delete the file to remove it.`);
+  }
+
   // ------------------------------------------------------------------ pointer
 
   viewport.addEventListener('pointerdown', (e) => {
-    if (!view || e.button === 2) return;
+    if (!view || e.button === 2 || e.target.closest('.hud, .legend')) return;
     hideMenu();
     viewport.focus({ preventScroll: true });
     const port = e.target.closest('.port.out');
@@ -600,7 +795,7 @@
     } else if (drag.mode === 'connect') {
       const a = pos.get(drag.from);
       const w = toWorld(e.clientX, e.clientY);
-      const x1 = a.x + W;
+      const x1 = a.x + W + 4;
       const y1 = a.y + H / 2;
       const dx = Math.max(40, Math.abs(w.x - x1) * 0.5);
       tempEdge.setAttribute('d', `M${x1},${y1} C${x1 + dx},${y1} ${w.x - dx},${w.y} ${w.x},${w.y}`);
@@ -636,6 +831,7 @@
           post({ type: 'move', id: d.id, x: p.x, y: p.y });
         }
       }
+      drawMinimap();
     } else if (d.mode === 'connect') {
       tempEdge.setAttribute('d', '');
       const src = nodeEls.get(d.from);
@@ -652,6 +848,7 @@
   viewport.addEventListener('pointercancel', endDrag);
 
   viewport.addEventListener('dblclick', (e) => {
+    if (e.target.closest('.hud, .legend')) return;
     const ghost = e.target.closest('.ghost');
     if (ghost) return post({ type: 'revert', id: ghost.dataset.id });
     const nodeEl = e.target.closest('.node');
@@ -664,7 +861,7 @@
 
   viewport.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    if (!view || drag) return;
+    if (!view || drag || e.target.closest('.hud, .legend')) return;
     const hit = e.target.closest('.edge-hit');
     const ghost = e.target.closest('.ghost');
     const nodeEl = e.target.closest('.node');
@@ -689,33 +886,34 @@
       e.preventDefault();
       const r = viewport.getBoundingClientRect();
       const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
-      const k = Math.min(MAX_K, Math.max(MIN_K, t.k * factor));
-      const px = e.clientX - r.left;
-      const py = e.clientY - r.top;
-      t.x = px - ((px - t.x) * k) / t.k;
-      t.y = py - ((py - t.y) * k) / t.k;
-      t.k = k;
-      applyTransform();
+      zoomAt(t.k * factor, e.clientX - r.left, e.clientY - r.top);
     },
     { passive: false }
   );
 
-  // ------------------------------------------------------------------ keyboard & toolbar
+  // ------------------------------------------------------------------ keyboard & controls
 
   document.addEventListener('keydown', (e) => {
     const inInput = e.target.tagName === 'INPUT';
     if (!menu.hidden) {
       const items = [...menu.querySelectorAll('.menu-item:not(:disabled)')];
       const i = items.indexOf(document.activeElement);
-      if (e.key === 'Escape') { hideMenu(); viewport.focus(); }
-      else if (e.key === 'ArrowDown') { items[(i + 1) % items.length].focus(); }
-      else if (e.key === 'ArrowUp') { items[(i - 1 + items.length) % items.length].focus(); }
+      if (e.key === 'Escape') {
+        hideMenu();
+        viewport.focus();
+      } else if (e.key === 'ArrowDown') items[(i + 1) % items.length].focus();
+      else if (e.key === 'ArrowUp') items[(i - 1 + items.length) % items.length].focus();
       else return;
       e.preventDefault();
       return;
     }
     if (inInput) {
-      if (e.key === 'Escape') { e.target.value = ''; query = ''; applyHighlight(); viewport.focus(); }
+      if (e.key === 'Escape') {
+        e.target.value = '';
+        query = '';
+        applyHighlight();
+        viewport.focus();
+      }
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
@@ -724,12 +922,11 @@
     else if ((mod && key === 'z' && e.shiftKey) || (mod && key === 'y')) post({ type: 'redo' });
     else if (mod && key === 'f') $('search').focus();
     else if (!mod && key === 'f') fit();
+    else if (!mod && (key === '+' || key === '=')) zoomCenter(t.k * 1.2);
+    else if (!mod && key === '-') zoomCenter(t.k / 1.2);
     else if (key === 'escape') select(null);
-    else if ((key === 'delete' || key === 'backspace') && selected) {
-      const n = nodeById(selected);
-      if (n && n.kind === 'planned') post({ type: 'deleteBox', id: n.id });
-      else if (n) toast(`${n.name} has a file. Delete the file to remove it.`);
-    } else if (key === 'enter' && selected) {
+    else if ((key === 'delete' || key === 'backspace') && selected) deleteSelected();
+    else if (key === 'enter' && selected) {
       const n = nodeById(selected);
       if (n && n.rel) post({ type: 'open', id: n.id });
     } else return;
@@ -740,22 +937,19 @@
     if (!menu.hidden && !e.target.closest('.menu')) hideMenu();
   });
   window.addEventListener('blur', hideMenu);
+  window.addEventListener('resize', drawMinimap);
 
   $('btn-undo').addEventListener('click', () => post({ type: 'undo' }));
   $('btn-redo').addEventListener('click', () => post({ type: 'redo' }));
+  $('btn-add').addEventListener('click', createBoxInCenter);
   $('btn-tidy').addEventListener('click', () => post({ type: 'tidy' }));
-  $('btn-fit').addEventListener('click', fit);
+  $('btn-fit').addEventListener('click', () => fit());
+  $('btn-delete').addEventListener('click', deleteSelected);
+  $('btn-zoom-in').addEventListener('click', () => zoomCenter(t.k * 1.2));
+  $('btn-zoom-out').addEventListener('click', () => zoomCenter(t.k / 1.2));
+  $('zoom').addEventListener('click', () => zoomCenter(1));
   $('btn-create-all').addEventListener('click', () => post({ type: 'createAll' }));
   $('project').addEventListener('click', () => post({ type: 'selectProject' }));
-  $('zoom').addEventListener('click', () => {
-    const r = viewport.getBoundingClientRect();
-    const cx = r.width / 2;
-    const cy = r.height / 2;
-    t.x = cx - ((cx - t.x) * 1) / t.k;
-    t.y = cy - ((cy - t.y) * 1) / t.k;
-    t.k = 1;
-    applyTransform();
-  });
 
   const search = $('search');
   search.addEventListener('input', () => {
@@ -782,17 +976,16 @@
     const msg = e.data;
     if (msg.type === 'graph') {
       if (drag && drag.mode === 'node') drag = null;
-      view = msg.view || {
-        project: null, nodes: [], edges: [], plannedCount: 0, unlockedCount: 0, duplicates: [],
-        canUndo: false, canRedo: false,
-      };
       if (!msg.view) {
-        $('empty').hidden = false;
-        $('empty').innerHTML = '';
-        $('empty').append(el('p', 'empty-title', 'No folder open'));
-        $('empty').append(el('p', 'empty-text', 'Open the folder that holds your dbt project to see its models.'));
+        view = null;
+        const empty = $('empty');
+        empty.hidden = false;
+        empty.innerHTML = '';
+        empty.append(el('p', 'empty-title', 'No folder open'));
+        empty.append(el('p', 'empty-text', 'Open the folder that holds your dbt project to see its models.'));
         return;
       }
+      view = msg.view;
       computeColors();
       render();
       if (first) {
@@ -806,7 +999,6 @@
     }
   });
 
-  if (!t) t = { x: 0, y: 0, k: 1 };
   applyTransform();
   post({ type: 'ready' });
 })();
