@@ -1,11 +1,18 @@
 'use strict';
 
-/** Layered left-to-right DAG layout (longest-path layering + barycenter ordering). */
+/**
+ * Layered DAG layout (longest-path layering + barycenter ordering), flowing
+ * left to right ('LR') or top to bottom ('TB').
+ */
 
 const NODE_W = 220;
-const NODE_H = 58;
+const NODE_H = 60;
+// Left to right: layers are columns, boxes in a layer stack downwards.
 const COL_W = 300;
 const ROW_H = 86;
+// Top to bottom: layers are rows, boxes in a layer sit side by side.
+const TB_LAYER_H = 140;
+const TB_SLOT_W = 260;
 
 /**
  * `minLayer(id)` is an optional lower bound on a box's column, used to keep
@@ -13,7 +20,7 @@ const ROW_H = 86;
  * the files have no ref() between them. Connections always win: a box is
  * never placed left of something it depends on.
  */
-function layeredLayout(ids, edges, sortKey = (id) => id, minLayer = () => 0) {
+function layeredLayout(ids, edges, sortKey = (id) => id, minLayer = () => 0, direction = 'LR') {
   const idSet = new Set(ids);
   const ins = new Map(ids.map((id) => [id, []]));
   const outs = new Map(ids.map((id) => [id, []]));
@@ -80,10 +87,17 @@ function layeredLayout(ids, edges, sortKey = (id) => id, minLayer = () => 0) {
 
   const pos = {};
   layers.forEach((L, li) => {
-    const offset = ((L.length - 1) * ROW_H) / 2;
-    L.forEach((id, k) => {
-      pos[id] = { x: li * COL_W, y: Math.round(k * ROW_H - offset) };
-    });
+    if (direction === 'TB') {
+      const offset = ((L.length - 1) * TB_SLOT_W) / 2;
+      L.forEach((id, k) => {
+        pos[id] = { x: Math.round(k * TB_SLOT_W - offset), y: li * TB_LAYER_H };
+      });
+    } else {
+      const offset = ((L.length - 1) * ROW_H) / 2;
+      L.forEach((id, k) => {
+        pos[id] = { x: li * COL_W, y: Math.round(k * ROW_H - offset) };
+      });
+    }
   });
   return pos;
 }
@@ -93,23 +107,38 @@ function overlaps(a, b) {
 }
 
 /** Picks a spot for a single new node next to its neighbours without overlapping. */
-function placeNew(id, edges, positions) {
+function placeNew(id, edges, positions, direction = 'LR') {
   const ups = edges.filter((e) => e.to === id && positions[e.from]).map((e) => positions[e.from]);
   const downs = edges.filter((e) => e.from === id && positions[e.to]).map((e) => positions[e.to]);
   const all = Object.values(positions);
-  let p;
+  // Work in "flow" coordinates (along the flow, across it) and map back at the end.
+  const tb = direction === 'TB';
+  const along = (p) => (tb ? p.y : p.x);
+  const across = (p) => (tb ? p.x : p.y);
+  const step = tb ? TB_LAYER_H : COL_W;
+  const slot = tb ? TB_SLOT_W : ROW_H;
+  let a;
+  let c;
   if (ups.length) {
-    p = { x: Math.max(...ups.map((u) => u.x)) + COL_W, y: avg(ups.map((u) => u.y)) };
+    a = Math.max(...ups.map(along)) + step;
+    c = avg(ups.map(across));
   } else if (downs.length) {
-    p = { x: Math.min(...downs.map((d) => d.x)) - COL_W, y: avg(downs.map((d) => d.y)) };
+    a = Math.min(...downs.map(along)) - step;
+    c = avg(downs.map(across));
   } else if (all.length) {
-    p = { x: Math.min(...all.map((a) => a.x)), y: Math.max(...all.map((a) => a.y)) + ROW_H };
+    a = Math.min(...all.map(along));
+    c = Math.max(...all.map(across)) + slot;
   } else {
-    p = { x: 0, y: 0 };
+    a = 0;
+    c = 0;
   }
-  p = { x: Math.round(p.x), y: Math.round(p.y) };
+  const make = () => (tb ? { x: Math.round(c), y: Math.round(a) } : { x: Math.round(a), y: Math.round(c) });
+  let p = make();
   let guard = 0;
-  while (all.some((q) => overlaps(p, q)) && guard++ < 500) p.y += ROW_H;
+  while (all.some((q) => overlaps(p, q)) && guard++ < 500) {
+    c += slot;
+    p = make();
+  }
   return p;
 }
 

@@ -18,7 +18,8 @@ const LAYER_FOLDERS = [
   [2, /^(int|intermediate|prep|transform|silver|clean)/],
   [3, /^(mart|report|fact|dim|core|gold|presentation|analytics|serving)/],
 ];
-const emptyState = () => ({ version: 1, positions: {}, planned: {}, plannedEdges: [], hidden: {} });
+const emptyState = () => ({ version: 1, direction: 'LR', positions: {}, planned: {}, plannedEdges: [], hidden: {} });
+const DIRECTIONS = { LR: 'left to right', TB: 'top to bottom' };
 
 /**
  * Everything the canvas shows and every change it can make, independent of
@@ -134,7 +135,7 @@ class FlowModel {
         if (waiting && guard > 0) continue;
         const flat = {};
         for (const [k, v] of Object.entries(pos)) if (this.nodes.has(k)) flat[k] = v;
-        pos[id] = placeNew(id, this.edges, flat);
+        pos[id] = placeNew(id, this.edges, flat, this.direction());
         missing.delete(id);
       }
     }
@@ -161,7 +162,30 @@ class FlowModel {
       .filter((id) => ['model', 'planned'].includes(this.nodes.get(id)?.kind) && hints.get(id) !== null)
       .map((id) => hints.get(id));
     const firstModelLayer = modelHints.length ? Math.min(...modelHints) : 0;
-    return layeredLayout(ids, this.edges, (id) => this.sortKey(id), (id) => hints.get(id) ?? firstModelLayer);
+    return layeredLayout(
+      ids,
+      this.edges,
+      (id) => this.sortKey(id),
+      (id) => hints.get(id) ?? firstModelLayer,
+      this.direction()
+    );
+  }
+
+  /** 'LR' (left to right) or 'TB' (top to bottom, downstream below). */
+  direction() {
+    return this.state.direction === 'TB' ? 'TB' : 'LR';
+  }
+
+  /** Switches the flow direction and lays out the boxes on the canvas again. One undo step. */
+  setDirection(direction) {
+    if (!DIRECTIONS[direction]) return { ok: false, message: `Unknown direction ${direction}.` };
+    if (direction === this.direction()) return { ok: true };
+    return this.transact(`Flow ${DIRECTIONS[direction]}`, () => {
+      this.state.direction = direction;
+      const ids = [...this.nodes.values()].filter((n) => !this.isHidden(n)).map((n) => n.id);
+      const laid = this.layout(ids);
+      for (const id of ids) this.state.positions[id] = laid[id];
+    });
   }
 
   sortKey(id) {
@@ -173,6 +197,7 @@ class FlowModel {
   saveState() {
     const out = {
       version: 1,
+      direction: this.direction(),
       positions: {},
       planned: this.state.planned,
       plannedEdges: this.state.plannedEdges,
@@ -236,6 +261,7 @@ class FlowModel {
       edges: this.edges.filter((e) => !this.isHidden(this.nodes.get(e.from)) && !this.isHidden(this.nodes.get(e.to))),
       plannedCount: nodes.filter((n) => n.kind === 'planned').length,
       hiddenCount,
+      direction: this.direction(),
       duplicates: this.scan ? this.scan.duplicates : [],
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,

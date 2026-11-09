@@ -516,6 +516,23 @@ button.primary svg {
   transform: scale(1.4);
 }
 
+/* Top to bottom: connections enter at the top and leave at the bottom. */
+.viewport.tb .port {
+  left: 50%;
+  right: auto;
+  margin-top: 0;
+  margin-left: -5px;
+}
+
+.viewport.tb .port.in {
+  top: -6px;
+}
+
+.viewport.tb .port.out {
+  top: auto;
+  bottom: -6px;
+}
+
 /* ------------------------------------------------------------ floating controls */
 
 .hud {

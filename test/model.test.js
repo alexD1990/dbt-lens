@@ -314,6 +314,37 @@ test('layout keeps dbt folder layers in order even without refs between them', (
   assert.equal(new Set(Object.values(x)).size, 3);
 });
 
+test('flow direction: top to bottom puts downstream below, is saved, and undo switches back', () => {
+  const root = fixture(PROJECT);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  assert.equal(m.getView().direction, 'LR');
+  assert.ok(m.setDirection('TB').ok);
+  let v = m.getView();
+  const at = (id) => v.nodes.find((n) => n.id === id);
+  assert.equal(v.direction, 'TB');
+  assert.ok(at('source:shop.orders').y < at('stg_orders').y, 'sources above staging');
+  assert.ok(at('stg_orders').y < at('fct_orders').y, 'staging above marts');
+  assert.equal(at('stg_orders').y, at('stg_customers').y, 'one layer per row');
+  assert.equal(JSON.parse(read(root, '.dbtflow.json')).direction, 'TB');
+  // A reload keeps the direction.
+  const again = new FlowModel(createNodeIO());
+  again.open(root);
+  assert.equal(again.getView().direction, 'TB');
+  // A new box connected to a model lands below it.
+  again.createBox('fct_new', { modelDir: 'model', folder: 'marts' }, 0, 0);
+  fs.writeFileSync(path.join(root, 'model/marts/fct_more.sql'), "select * from {{ ref('fct_orders') }}\n");
+  again.refresh();
+  const nv = again.getView();
+  assert.ok(nv.nodes.find((n) => n.id === 'fct_more').y > nv.nodes.find((n) => n.id === 'fct_orders').y);
+  // Undo in the first model switches back to left to right.
+  assert.ok(m.undo().ok);
+  v = m.getView();
+  assert.equal(v.direction, 'LR');
+  assert.ok(at('stg_orders').x < at('fct_orders').x || v.nodes.find((n) => n.id === 'stg_orders').x < v.nodes.find((n) => n.id === 'fct_orders').x);
+  assert.equal(m.setDirection('XY').ok, false);
+});
+
 test('tidy lays out only the boxes on the canvas', () => {
   const root = fixture(PROJECT);
   const m = new FlowModel(createNodeIO());

@@ -8,6 +8,8 @@ A VS Code canvas for dbt models. It draws how your existing models connect, and 
 
 **Sync with files.** The top button in the tool bar on the left (two arrows in a circle), or *Sync with files* on the canvas menu, reads every file again, puts every model, source, seed and snapshot on the canvas, including boxes you removed, and lays them out left to right. Use it to get a clean picture of an existing project. Ctrl+Z undoes it.
 
+**Left to right or top to bottom.** The flow button in the tool bar (or *Flow top to bottom* on the canvas menu) switches between left to right and top to bottom, with downstream models below. The choice is saved per project; Ctrl+Z switches back.
+
 **Colours by folder.** Each folder under `models/` gets its own colour. `staging`, `intermediate` and `marts` get their usual blue, violet and amber; other folders take the next colour in the palette. Sources are green pills on the left.
 
 **Sketch new models.** Right-click the canvas and choose *Create new box*. Name it, pick a folder (suggested from the prefix: `stg_` goes to staging, `fct_`/`dim_` to marts), then drag from the dot on the right of one box onto another to connect them. Boxes without a file are dashed.

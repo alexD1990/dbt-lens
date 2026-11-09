@@ -27,6 +27,8 @@
     undo: '<path d="M4.5 3.5 2 6l2.5 2.5"/><path d="M2.5 6H10a3.5 3.5 0 0 1 0 7H6"/>',
     redo: '<path d="M11.5 3.5 14 6l-2.5 2.5"/><path d="M13.5 6H6a3.5 3.5 0 0 0 0 7h4"/>',
     sync: '<path d="M13.5 6.5A5.5 5.5 0 0 0 3.4 4.6"/><path d="M3 2v3h3"/><path d="M2.5 9.5a5.5 5.5 0 0 0 10.1 1.9"/><path d="M13 14v-3h-3"/>',
+    flowLR: '<rect x="1" y="5.5" width="5" height="5" rx="1.2"/><rect x="10" y="5.5" width="5" height="5" rx="1.2"/><path d="M6 8h3.5M8 6.5 9.5 8 8 9.5"/>',
+    flowTB: '<rect x="5.5" y="1" width="5" height="5" rx="1.2"/><rect x="5.5" y="10" width="5" height="5" rx="1.2"/><path d="M8 6v3.5M6.5 8 8 9.5 9.5 8"/>',
     add: '<rect x="2" y="3.5" width="12" height="9" rx="2.5"/><path d="M8 6v4M6 8h4"/>',
     tidy: '<rect x="1.5" y="2.5" width="4" height="3" rx=".8"/><rect x="1.5" y="10.5" width="4" height="3" rx=".8"/><rect x="10.5" y="6.5" width="4" height="3" rx=".8"/><path d="M5.5 4h2.5v8H5.5M8 8h2.5"/>',
     fit: '<path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="5.5" width="6" height="5" rx="1"/>',
@@ -82,6 +84,7 @@
         <span class="hud-sep"></span>
         <button class="icon" id="btn-add" title="Create new box" aria-label="Create new box">${svgIcon('add')}</button>
         <button class="icon" id="btn-tidy" title="Tidy up layout" aria-label="Tidy up layout">${svgIcon('tidy')}</button>
+        <button class="icon" id="btn-direction" aria-label="Flow direction"></button>
         <button class="icon" id="btn-fit" title="Fit to view (F)" aria-label="Fit to view">${svgIcon('fit')}</button>
         <button class="icon" id="btn-delete" aria-label="Delete selected box">${svgIcon('trash')}</button>
       </nav>
@@ -212,8 +215,9 @@
     const fitsY = (maxY - minY) * k <= r.height - padY;
     t = {
       k,
-      x: fitsX ? (r.width - (maxX - minX) * k) / 2 - minX * k : 64 - minX * k,
-      y: fitsY ? (r.height - (maxY - minY) * k) / 2 - minY * k : r.height / 2 - ((minY + maxY) / 2) * k,
+      // When it does not fit, start where the flow starts: the left edge, or the top for top to bottom.
+      x: fitsX ? (r.width - (maxX - minX) * k) / 2 - minX * k : isTB() ? r.width / 2 - ((minX + maxX) / 2) * k : 64 - minX * k,
+      y: fitsY ? (r.height - (maxY - minY) * k) / 2 - minY * k : isTB() ? 56 - minY * k : r.height / 2 - ((minY + maxY) / 2) * k,
     };
     applyTransform();
   }
@@ -342,13 +346,28 @@
     drawMinimap();
   }
 
-  function edgeD(a, b) {
-    const x1 = a.x + W + 4;
-    const y1 = a.y + H / 2;
-    const x2 = b.x - 4;
-    const y2 = b.y + H / 2;
+  const isTB = () => !!view && view.direction === 'TB';
+
+  /** Where a connection leaves a box: right edge (left to right) or bottom edge (top to bottom). */
+  function outPoint(a) {
+    return isTB() ? { x: a.x + W / 2, y: a.y + H + 4 } : { x: a.x + W + 4, y: a.y + H / 2 };
+  }
+
+  /** A curve that leaves and enters along the flow direction. */
+  function curve(x1, y1, x2, y2) {
+    if (isTB()) {
+      const dy = Math.max(30, Math.abs(y2 - y1) * 0.5);
+      return `M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}`;
+    }
     const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-    return { d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`, x1, y1, x2, y2 };
+    return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+  }
+
+  function edgeD(a, b) {
+    const { x: x1, y: y1 } = outPoint(a);
+    const x2 = isTB() ? b.x + W / 2 : b.x - 4;
+    const y2 = isTB() ? b.y - 4 : b.y + H / 2;
+    return { d: curve(x1, y1, x2, y2), x1, y1, x2, y2 };
   }
 
   function updateEdges(onlyId) {
@@ -377,6 +396,10 @@
     undo.title = view.canUndo ? `Undo: ${view.undoLabel} (Ctrl+Z)` : 'Nothing to undo';
     redo.title = view.canRedo ? `Redo: ${view.redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo';
     updateDeleteButton();
+
+    const dir = $('btn-direction');
+    dir.innerHTML = svgIcon(isTB() ? 'flowTB' : 'flowLR');
+    dir.title = isTB() ? 'Flow: top to bottom. Click for left to right.' : 'Flow: left to right. Click for top to bottom.';
 
     const createAll = $('btn-create-all');
     createAll.hidden = !view.plannedCount;
@@ -433,11 +456,13 @@
     const modelRoot = (view.project && view.project.modelDirs[0]) || 'models';
     const rows = [];
     // Folders in the order data flows through them (left to right).
-    const avgX = (g) => {
-      const xs = view.nodes.filter((n) => (n.kind === 'model' || n.kind === 'planned') && n.group === g).map((n) => n.x);
+    const avgAlong = (g) => {
+      const xs = view.nodes
+        .filter((n) => (n.kind === 'model' || n.kind === 'planned') && n.group === g)
+        .map((n) => (isTB() ? n.y : n.x));
       return xs.reduce((a, b) => a + b, 0) / xs.length;
     };
-    const ordered = [...colors.keys()].sort((a, b) => avgX(a) - avgX(b));
+    const ordered = [...colors.keys()].sort((a, b) => avgAlong(a) - avgAlong(b));
     for (const g of ordered) rows.push({ label: g || modelRoot, color: colors.get(g), cls: 'sw' });
     const kinds = new Set(view.nodes.map((n) => n.kind));
     if (kinds.has('source')) rows.push({ label: 'sources', color: KIND_COLOR.source, cls: 'sw pill' });
@@ -681,6 +706,9 @@
         ? { label: `Show removed boxes (${view.hiddenCount})`, run: () => post({ type: 'showHidden' }) }
         : null,
       { label: 'Tidy up layout', run: () => post({ type: 'tidy' }) },
+      isTB()
+        ? { label: 'Flow left to right', run: () => post({ type: 'setDirection', direction: 'LR' }) }
+        : { label: 'Flow top to bottom', hint: 'downstream below', run: () => post({ type: 'setDirection', direction: 'TB' }) },
       { label: 'Fit to view', hint: 'F', run: fit },
       '-',
       { label: view.canUndo ? `Undo ${view.undoLabel}` : 'Undo', hint: 'Ctrl+Z', disabled: !view.canUndo, run: () => post({ type: 'undo' }) },
@@ -781,10 +809,8 @@
     } else if (drag.mode === 'connect') {
       const a = pos.get(drag.from);
       const w = toWorld(e.clientX, e.clientY);
-      const x1 = a.x + W + 4;
-      const y1 = a.y + H / 2;
-      const dx = Math.max(40, Math.abs(w.x - x1) * 0.5);
-      tempEdge.setAttribute('d', `M${x1},${y1} C${x1 + dx},${y1} ${w.x - dx},${w.y} ${w.x},${w.y}`);
+      const o = outPoint(a);
+      tempEdge.setAttribute('d', curve(o.x, o.y, w.x, w.y));
       const under = document.elementFromPoint(e.clientX, e.clientY);
       const target = under && under.closest('.node');
       const id = target && target.dataset.id !== drag.from ? target.dataset.id : null;
@@ -926,6 +952,7 @@
   $('btn-redo').addEventListener('click', () => post({ type: 'redo' }));
   $('btn-add').addEventListener('click', createBoxInCenter);
   $('btn-tidy').addEventListener('click', () => post({ type: 'tidy' }));
+  $('btn-direction').addEventListener('click', () => post({ type: 'setDirection', direction: isTB() ? 'LR' : 'TB' }));
   $('btn-fit').addEventListener('click', () => fit());
   $('btn-delete').addEventListener('click', deleteSelected);
   $('btn-zoom-in').addEventListener('click', () => zoomCenter(t.k * 1.2));
@@ -987,12 +1014,15 @@
       }
       view = msg.view;
       computeColors();
+      viewport.classList.toggle('tb', isTB());
       render();
       if (first) {
         first = false;
         if (hadSavedView) applyTransform();
         else fit(true);
       }
+    } else if (msg.type === 'fit') {
+      fit();
     } else if (msg.type === 'synced') {
       fit();
       toast(syncSummary(msg.summary), 6000);

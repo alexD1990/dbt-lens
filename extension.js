@@ -217,6 +217,12 @@ class Controller {
         return this.report(m.moveNode(msg.id, msg.x, msg.y));
       case 'tidy':
         return this.report(m.tidy(), 'Layout tidied. Undo puts it back.');
+      case 'setDirection': {
+        const r = m.setDirection(msg.direction);
+        this.report(r);
+        for (const s of this.surfaces) s.webview.postMessage({ type: 'fit' });
+        return;
+      }
       case 'sync': {
         const r = m.syncFromFiles();
         this.report(r);
