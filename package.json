@@ -1,0 +1,111 @@
+{
+  "name": "dbt-flow",
+  "displayName": "dbt Flow",
+  "description": "See how your dbt models connect, and sketch new ones as boxes that become .sql files.",
+  "version": "0.2.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "dbt",
+    "lineage",
+    "dag",
+    "flowchart",
+    "sql"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/dbt_project.yml"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dbtFlow.openPanel",
+        "title": "Open Canvas",
+        "category": "dbt Flow",
+        "icon": {
+          "dark": "media/icon.svg",
+          "light": "media/icon-light.svg"
+        }
+      },
+      {
+        "command": "dbtFlow.refresh",
+        "title": "Reload Project",
+        "category": "dbt Flow",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dbtFlow.tidy",
+        "title": "Tidy Up Layout",
+        "category": "dbt Flow",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "dbtFlow.createAll",
+        "title": "Create All Files",
+        "category": "dbt Flow"
+      },
+      {
+        "command": "dbtFlow.undo",
+        "title": "Undo Last Canvas Change",
+        "category": "dbt Flow"
+      },
+      {
+        "command": "dbtFlow.redo",
+        "title": "Redo Canvas Change",
+        "category": "dbt Flow"
+      },
+      {
+        "command": "dbtFlow.selectProject",
+        "title": "Choose dbt Project…",
+        "category": "dbt Flow"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dbtFlow.openPanel",
+          "when": "resourceExtname == .sql || resourceExtname == .yml || resourceFilename == dbt_project.yml",
+          "group": "navigation@-1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "dbt Flow",
+      "properties": {
+        "dbtFlow.openOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the canvas next to your code when a dbt project is opened."
+        },
+        "dbtFlow.projectPath": {
+          "type": "string",
+          "default": "",
+          "description": "Folder that holds dbt_project.yml, absolute or relative to the workspace. Leave empty to find it automatically."
+        },
+        "dbtFlow.confirmFileEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask before adding a ref() to an existing .sql file when you connect two boxes."
+        },
+        "dbtFlow.openCreatedFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the new .sql file after Create file."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/model.test.js test/extension.test.js"
+  }
+}

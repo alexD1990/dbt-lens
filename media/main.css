@@ -1,0 +1,704 @@
+/* dbt Flow canvas. Colours come from the active VS Code theme; folder colours are set per box as --c. */
+
+:root {
+  --surface: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --fg: var(--vscode-foreground);
+  --muted: var(--vscode-descriptionForeground);
+  --line: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  --card: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  --focus: var(--vscode-focusBorder);
+  --edge: color-mix(in srgb, var(--vscode-foreground) 32%, transparent);
+  --edge-strong: color-mix(in srgb, var(--vscode-foreground) 70%, transparent);
+  --mono: var(--vscode-editor-font-family, ui-monospace, monospace);
+  --radius: 7px;
+}
+
+body[data-surface='panel'] {
+  --surface: var(--vscode-editor-background);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ------------------------------------------------------------ toolbar */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.bar-left,
+.bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bar-left {
+  flex: 1 1 200px;
+}
+
+.project {
+  background: none;
+  border: 0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.search {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 90px;
+  max-width: 280px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+}
+
+.search:focus-within {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.search svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--muted);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 0;
+}
+
+.search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+button.icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+
+button.icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+button.icon:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+button.icon:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+}
+
+button.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  margin-left: 4px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button.primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button.primary svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.8;
+}
+
+:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.banner {
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--vscode-editorWarning-foreground, var(--muted));
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 8%, transparent);
+}
+
+/* ------------------------------------------------------------ canvas */
+
+.viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  cursor: default;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--vscode-foreground) 14%, transparent) 1px, transparent 1.2px);
+}
+
+.viewport.panning {
+  cursor: grabbing;
+}
+
+.viewport.connecting {
+  cursor: crosshair;
+}
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.edge .line {
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  transition: stroke 120ms, opacity 120ms;
+}
+
+.edge.planned .line {
+  stroke-dasharray: 5 4;
+}
+
+.edge.hover .line {
+  stroke: var(--edge-strong);
+}
+
+.edge.hl .line {
+  stroke: var(--focus);
+  stroke-width: 2;
+}
+
+.edge.dim .line {
+  opacity: 0.18;
+}
+
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: context-menu;
+}
+
+.arrow {
+  fill: var(--edge-strong);
+  stroke: none;
+}
+
+.arrow-hl {
+  fill: var(--focus);
+  stroke: none;
+}
+
+.temp-edge {
+  stroke: var(--focus);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+.ghost-link {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 1 4;
+  opacity: 0.8;
+}
+
+/* ------------------------------------------------------------ boxes */
+
+.node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 220px;
+  height: 58px;
+  padding: 9px 12px 0 15px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--c) 7%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--c) 40%, var(--line));
+  box-shadow: inset 4px 0 0 var(--c), 0 1px 2px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.15));
+  cursor: pointer;
+  transition: opacity 120ms, box-shadow 120ms;
+}
+
+.node .title {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 14px;
+}
+
+.node .meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+}
+
+.node .path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node .chip {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+}
+
+.node .lock {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.node .lock svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.node:hover .lock {
+  opacity: 0.7;
+}
+
+.node.unlocked .lock {
+  opacity: 1;
+  color: var(--c);
+}
+
+/* Sources are where data enters, so they get the rounded "pill" end. */
+.node.k-source {
+  border-radius: 29px;
+  padding-left: 20px;
+  box-shadow: inset 6px 0 0 var(--c), 0 1px 2px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.15));
+}
+
+.node.k-planned {
+  background: color-mix(in srgb, var(--c) 4%, var(--surface));
+  border: 1.5px dashed color-mix(in srgb, var(--c) 75%, transparent);
+  box-shadow: none;
+}
+
+.node.k-planned .chip {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed color-mix(in srgb, var(--c) 60%, transparent);
+}
+
+.node.k-missing {
+  background: color-mix(in srgb, var(--vscode-errorForeground) 6%, var(--surface));
+  border: 1.5px dashed var(--vscode-errorForeground);
+  box-shadow: none;
+}
+
+.node.k-missing .title {
+  color: var(--vscode-errorForeground);
+}
+
+.node.unlocked {
+  box-shadow: inset 4px 0 0 var(--c), 0 6px 18px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+}
+
+.node.dragging {
+  cursor: grabbing;
+  box-shadow: inset 4px 0 0 var(--c), 0 10px 26px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+  z-index: 3;
+}
+
+.node.selected {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  z-index: 2;
+}
+
+.node.active::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--c);
+}
+
+.node.match {
+  outline: 2px solid var(--vscode-editor-findMatchHighlightBorder, var(--focus));
+  outline-offset: 2px;
+}
+
+.node.dim {
+  opacity: 0.28;
+}
+
+.node.drop {
+  outline: 2px dashed var(--focus);
+  outline-offset: 3px;
+}
+
+.node.source {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Ports: drag from the right one to another box to connect. */
+.port {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1.5px solid var(--c);
+  opacity: 0;
+  transition: opacity 120ms, transform 120ms;
+}
+
+.port.in {
+  left: -6px;
+}
+
+.port.out {
+  right: -6px;
+  cursor: crosshair;
+}
+
+.node:hover .port,
+.viewport.connecting .port.in {
+  opacity: 1;
+}
+
+.port.out:hover {
+  transform: scale(1.35);
+  background: var(--c);
+}
+
+/* Where an unlocked box returns to on "Put back". */
+.ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 220px;
+  height: 58px;
+  border-radius: var(--radius);
+  border: 1.5px dashed color-mix(in srgb, var(--c) 55%, transparent);
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--c) 7%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+  display: flex;
+  align-items: center;
+  padding-left: 15px;
+  cursor: pointer;
+}
+
+.ghost-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* ------------------------------------------------------------ overlays */
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.empty > * {
+  pointer-events: auto;
+}
+
+.empty-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.empty-text {
+  margin: 0 0 10px;
+  max-width: 34ch;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  max-width: calc(100% - 90px);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  backdrop-filter: blur(4px);
+}
+
+.legend summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.legend[open] summary {
+  margin-bottom: 6px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 20px;
+}
+
+.sw {
+  width: 16px;
+  height: 10px;
+  flex: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--c) 25%, transparent);
+  box-shadow: inset 3px 0 0 var(--c);
+}
+
+.sw.pill {
+  border-radius: 6px;
+}
+
+.sw.dashed {
+  background: none;
+  box-shadow: none;
+  border: 1.5px dashed var(--c);
+}
+
+.sw.ghosted {
+  box-shadow: none;
+  border: 1px dashed var(--c);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 30%, transparent) 0 2px, transparent 2px 4px);
+}
+
+.zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translate(-50%, 8px);
+  max-width: min(440px, calc(100% - 32px));
+  padding: 7px 12px;
+  border-radius: 6px;
+  background: var(--vscode-editorHoverWidget-background, var(--card));
+  color: var(--vscode-editorHoverWidget-foreground, var(--fg));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--line));
+  box-shadow: 0 4px 14px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms, transform 160ms;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ------------------------------------------------------------ context menu */
+
+.menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 210px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--vscode-menu-background, var(--card));
+  color: var(--vscode-menu-foreground, var(--fg));
+  border: 1px solid var(--vscode-menu-border, var(--line));
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+}
+
+.menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  line-height: 18px;
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  outline: none;
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+}
+
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.menu-item.danger .menu-label {
+  color: var(--vscode-errorForeground);
+}
+
+.menu-item.danger:hover .menu-label,
+.menu-item.danger:focus-visible .menu-label {
+  color: inherit;
+}
+
+.menu-hint {
+  font-size: 11px;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--vscode-menu-separatorBackground, var(--line));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
