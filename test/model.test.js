@@ -122,26 +122,81 @@ test('connect refuses loops and connections into sources', () => {
   assert.equal(m.connect('stg_orders', 'source:shop.orders').ok, false);
 });
 
-test('locked boxes refuse moves; unlock, move, revert brings them home', () => {
+test('every box moves freely, never touches SQL, and undo puts it back', () => {
   const root = fixture(PROJECT);
   const m = new FlowModel(createNodeIO());
   m.open(root);
-  const home = { ...m.getView().nodes.find((n) => n.id === 'fct_orders') };
-  assert.equal(m.moveNode('fct_orders', 999, 999).ok, false);
-  m.unlock('fct_orders');
+  const start = { ...m.getView().nodes.find((n) => n.id === 'fct_orders') };
   assert.ok(m.moveNode('fct_orders', 999, 999).ok);
   let n = m.getView().nodes.find((x) => x.id === 'fct_orders');
-  assert.deepEqual([n.x, n.y, n.locked], [999, 999, false]);
-  assert.deepEqual(n.home, { x: home.x, y: home.y });
-  // Moving never touches SQL.
+  assert.deepEqual([n.x, n.y], [999, 999]);
   assert.equal(read(root, 'model/marts/fct_orders.sql'), PROJECT['model/marts/fct_orders.sql']);
-  m.revert('fct_orders');
-  n = m.getView().nodes.find((x) => x.id === 'fct_orders');
-  assert.deepEqual([n.x, n.y, n.locked], [home.x, home.y, true]);
-  // Undo of the revert puts it back out, unlocked.
   m.undo();
   n = m.getView().nodes.find((x) => x.id === 'fct_orders');
-  assert.deepEqual([n.x, n.y, n.locked], [999, 999, false]);
+  assert.deepEqual([n.x, n.y], [start.x, start.y]);
+});
+
+test('old .dbtflow.json with lock "home" spots still loads', () => {
+  const root = fixture({
+    ...PROJECT,
+    '.dbtflow.json': JSON.stringify({ version: 1, positions: { fct_orders: { x: 5, y: 6, home: { x: 1, y: 2 } } }, planned: {}, plannedEdges: [] }),
+  });
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  const n = m.getView().nodes.find((x) => x.id === 'fct_orders');
+  assert.deepEqual([n.x, n.y, n.home], [5, 6, undefined]);
+});
+
+test('rename a model from the canvas: file, refs and position follow; one undo reverts all', () => {
+  const root = fixture(PROJECT);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  m.moveNode('stg_orders', 40, 70);
+  const r = m.renameModel('stg_orders', 'stg_shop_orders');
+  assert.ok(r.ok, r.message);
+  assert.ok(fs.existsSync(path.join(root, 'model/staging/stg_shop_orders.sql')));
+  assert.ok(!fs.existsSync(path.join(root, 'model/staging/stg_orders.sql')));
+  assert.match(read(root, 'model/marts/fct_orders.sql'), /ref\('stg_shop_orders'\)/);
+  assert.doesNotMatch(read(root, 'model/marts/fct_orders.sql'), /ref\('stg_orders'\)/);
+  const v = m.getView();
+  const n = v.nodes.find((x) => x.id === 'stg_shop_orders');
+  assert.deepEqual([n.x, n.y], [40, 70]);
+  assert.ok(!v.nodes.some((x) => x.kind === 'missing' && x.id === 'stg_orders'));
+  assert.equal(m.renameModel('stg_customers', 'fct_orders').ok, false); // name taken
+
+  assert.ok(m.undo().ok);
+  assert.ok(fs.existsSync(path.join(root, 'model/staging/stg_orders.sql')));
+  assert.ok(!fs.existsSync(path.join(root, 'model/staging/stg_shop_orders.sql')));
+  assert.match(read(root, 'model/marts/fct_orders.sql'), /ref\('stg_orders'\)/);
+  assert.deepEqual(
+    (({ x, y }) => [x, y])(m.getView().nodes.find((x) => x.id === 'stg_orders')),
+    [40, 70]
+  );
+});
+
+test('renamed in Explorer: new name keeps the box, no ghost after refs are updated', () => {
+  const root = fixture(PROJECT);
+  const m = new FlowModel(createNodeIO());
+  m.open(root);
+  m.moveNode('stg_orders', 40, 70);
+  const oldAbs = path.join(root, 'model/staging/stg_orders.sql');
+  const newAbs = path.join(root, 'model/staging/orders.sql');
+  fs.renameSync(oldAbs, newAbs);
+  m.refresh(); // the file watcher may run first
+  const info = m.fileRenamed(oldAbs, newAbs);
+  assert.deepEqual(info, { oldName: 'stg_orders', newName: 'orders', usedBy: ['model/marts/fct_orders.sql'] });
+  let v = m.getView();
+  assert.deepEqual((({ x, y }) => [x, y])(v.nodes.find((x) => x.id === 'orders')), [40, 70]);
+  const ghost = v.nodes.find((x) => x.id === 'stg_orders');
+  assert.equal(ghost.kind, 'missing');
+  assert.deepEqual(ghost.usedBy, ['model/marts/fct_orders.sql']);
+
+  assert.ok(m.retargetRefs('stg_orders', 'orders').ok);
+  v = m.getView();
+  assert.ok(!v.nodes.some((x) => x.id === 'stg_orders'));
+  assert.ok(v.edges.some((e) => e.from === 'orders' && e.to === 'fct_orders'));
+  // A move to another folder keeps the same name: nothing to do.
+  assert.equal(m.fileRenamed(newAbs, path.join(root, 'model/marts/orders.sql')), null);
 });
 
 test('empty project: plan boxes, connect, create all files', () => {
@@ -172,7 +227,6 @@ test('empty project: plan boxes, connect, create all files', () => {
 
   const v = m.getView();
   assert.equal(v.plannedCount, 0);
-  assert.ok(v.nodes.every((n) => n.locked));
   assert.equal(v.edges.filter((e) => !e.planned).length, 2);
   // Positions survive file creation.
   assert.deepEqual(

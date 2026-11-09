@@ -32,6 +32,10 @@ function makeVscode(wsRoot, answers) {
       }),
       createFileSystemWatcher: () => ({ onDidCreate() {}, onDidChange() {}, onDidDelete() {}, dispose() {} }),
       onDidChangeWorkspaceFolders: emitter(),
+      onDidRenameFiles: (fn) => {
+        handlers.rename = fn;
+        return { dispose() {} };
+      },
       onDidChangeConfiguration: emitter(),
     },
     window: {
@@ -48,7 +52,10 @@ function makeVscode(wsRoot, answers) {
       },
       showQuickPick: async (items) => items[0],
       showInformationMessage: async (msg, opts, ...buttons) => (typeof opts === 'object' ? buttons[0] : undefined),
-      showWarningMessage: (m) => warnings.push(m),
+      showWarningMessage: (m, ...buttons) => {
+        warnings.push(m);
+        return Promise.resolve(buttons.includes('Update refs') ? 'Update refs' : undefined);
+      },
       showErrorMessage: (m) => warnings.push('ERR ' + m),
       setStatusBarMessage: () => {},
       showTextDocument: async (uri) => posted.push({ opened: uri.fsPath }),
@@ -154,6 +161,19 @@ test('extension activates, renders HTML and handles canvas messages', async () =
 
   await send({ type: 'undo' });
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'models', 'staging', 'stg_a.sql'), 'utf8'), /ref\('stg_b'\)/);
+  // Renaming a file in Explorer: the box keeps its place and refs are updated on request.
+  const before = graphs.at(-1).nodes.find((n) => n.id === 'stg_b');
+  const oldUri = fake.vscode.Uri.file(path.join(root, 'models', 'staging', 'stg_b.sql'));
+  const newUri = fake.vscode.Uri.file(path.join(root, 'models', 'staging', 'stg_bb.sql'));
+  fs.renameSync(oldUri.fsPath, newUri.fsPath);
+  fake.handlers.rename({ files: [{ oldUri, newUri }] });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.match(fs.readFileSync(path.join(root, 'models', 'fct_c.sql'), 'utf8'), /ref\('stg_bb'\)/);
+  const after = graphs.at(-1);
+  assert.ok(!after.nodes.some((n) => n.id === 'stg_b'), 'old box is gone');
+  const moved = after.nodes.find((n) => n.id === 'stg_bb');
+  assert.deepEqual([moved.x, moved.y], [before.x, before.y]);
+
   await send({ type: 'open', id: 'stg_a' });
   assert.ok(fake.posted.some((p) => p.opened && p.opened.endsWith('stg_a.sql')));
   assert.equal(fake.warnings.filter((w) => w.startsWith('ERR')).length, 0, fake.warnings.join('\n'));

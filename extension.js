@@ -193,10 +193,15 @@ class Controller {
         return this.report(m.createBox(msg.id, place, n ? n.x : 0, n ? n.y : 0));
       }
       case 'rename': {
+        const node = m.nodes.get(msg.id);
+        if (!node) return;
         const name = await this.askName(`Rename ${msg.id}`, msg.id, msg.id);
         if (!name || name === msg.id) return;
-        return this.report(m.renameBox(msg.id, name));
+        if (node.kind === 'planned') return this.report(m.renameBox(msg.id, name));
+        return this.renameModel(msg.id, name);
       }
+      case 'retarget':
+        return this.retarget(msg.id);
       case 'changeFolder': {
         const place = await this.pickFolder(msg.id, true);
         if (!place) return;
@@ -206,14 +211,6 @@ class Controller {
         return this.report(m.deleteBox(msg.id));
       case 'move':
         return this.report(m.moveNode(msg.id, msg.x, msg.y));
-      case 'unlock':
-        return this.report(m.unlock(msg.id));
-      case 'lockHere':
-        return this.report(m.lockHere(msg.id));
-      case 'revert':
-        return this.report(m.revert(msg.id));
-      case 'revertAll':
-        return this.report(m.revertAll());
       case 'tidy':
         return this.report(m.tidy(), 'Layout tidied. Undo puts it back.');
       case 'undo': {
@@ -240,6 +237,11 @@ class Controller {
       }
       case 'open':
         return this.openFile(msg.id, surface);
+      case 'openRel': {
+        const abs = path.resolve(m.cfg.root, msg.rel);
+        if (path.relative(m.cfg.root, abs).startsWith('..')) return;
+        return this.openPath(abs, surface);
+      }
       case 'createFile': {
         const r = m.createFiles([msg.id]);
         this.report(r, `Created ${msg.id}.sql`);
@@ -280,9 +282,74 @@ class Controller {
     this.report(m.connect(from, to), `Connected ${plan.from.name} to ${plan.to.name}`);
   }
 
-  async openFile(id, surface) {
+  /** Asks before rewriting other files when refs point at the renamed model. */
+  async confirmRefEdits(question, files) {
+    const config = vscode.workspace.getConfiguration('dbtFlow');
+    if (!files.length || !config.get('confirmFileEdits')) return true;
+    const list = files.slice(0, 8).join('\n') + (files.length > 8 ? `\n…and ${files.length - 8} more` : '');
+    const choice = await vscode.window.showInformationMessage(
+      question,
+      { modal: true, detail: `${list}\n\nUndo in dbt Flow changes them back.` },
+      'Update refs'
+    );
+    return !!choice;
+  }
+
+  async renameModel(id, newName) {
+    const m = this.model;
+    const files = m.referencingFiles(id, m.absPath(id)).map((f) => f.rel);
+    const ok = await this.confirmRefEdits(
+      `Rename ${id} to ${newName} and update ref('${id}') in ${files.length} file${files.length === 1 ? '' : 's'}?`,
+      files
+    );
+    if (!ok) return this.broadcast();
+    const wasOpen = vscode.workspace.textDocuments.some((d) => d.uri.fsPath === m.absPath(id));
+    const r = m.renameModel(id, newName);
+    this.report(r, `Renamed ${id} to ${newName}`);
+    if (r.ok && wasOpen) await vscode.window.showTextDocument(vscode.Uri.file(r.newAbs), { preview: false });
+  }
+
+  /** For a red box: point every ref() to it at an existing model instead. */
+  async retarget(missingId) {
+    const m = this.model;
+    const models = [...m.nodes.values()].filter((n) => n.kind === 'model').map((n) => n.name).sort();
+    const pick = await vscode.window.showQuickPick(models, {
+      placeHolder: `Which model should ref('${missingId}') point to?`,
+    });
+    if (!pick) return;
+    const files = m.referencingFiles(missingId).map((f) => f.rel);
+    const ok = await this.confirmRefEdits(`Change ref('${missingId}') to ref('${pick}') in ${files.length} file${files.length === 1 ? '' : 's'}?`, files);
+    if (!ok) return;
+    this.report(m.retargetRefs(missingId, pick), `ref('${missingId}') now points to ${pick}`);
+  }
+
+  /** A model file was renamed in Explorer: keep its box in place and offer to fix refs. */
+  async onFilesRenamed(files) {
+    const m = this.model;
+    if (!m) return;
+    for (const { oldUri, newUri } of files) {
+      const info = m.fileRenamed(oldUri.fsPath, newUri.fsPath);
+      if (!info) continue;
+      this.broadcast();
+      if (!info.usedBy.length) continue;
+      const n = info.usedBy.length;
+      const choice = await vscode.window.showWarningMessage(
+        `${n} model${n === 1 ? '' : 's'} still use${n === 1 ? 's' : ''} ref('${info.oldName}'). Update to ref('${info.newName}')?`,
+        'Update refs',
+        'Leave as is'
+      );
+      if (choice === 'Update refs') {
+        this.report(m.retargetRefs(info.oldName, info.newName), `Updated refs to ${info.newName}`);
+      }
+    }
+  }
+
+  openFile(id, surface) {
     const abs = this.model.absPath(id);
-    if (!abs) return;
+    if (abs) return this.openPath(abs, surface);
+  }
+
+  async openPath(abs, surface) {
     let viewColumn;
     if (surface && surface.panel) {
       // Keep the canvas visible: open next to it, not on top of it.
@@ -351,6 +418,9 @@ function activate(context) {
     vscode.commands.registerCommand('dbtFlow.createAll', () => ctl.handle({ type: 'createAll' })),
     vscode.commands.registerCommand('dbtFlow.selectProject', () => ctl.selectProject()),
     vscode.window.onDidChangeActiveTextEditor(() => ctl.postActiveFile()),
+    vscode.workspace.onDidRenameFiles((e) =>
+      ctl.onFilesRenamed(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))
+    ),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       ctl.loadProject();
       ctl.broadcast();

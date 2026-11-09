@@ -32,8 +32,6 @@
     trash: '<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/>',
     plus: '<path d="M8 3v10M3 8h10"/>',
     minus: '<path d="M3 8h10"/>',
-    lock: '<rect x="3" y="7.5" width="10" height="6.5" rx="1.5"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5"/>',
-    lockOpen: '<rect x="3" y="7.5" width="10" height="6.5" rx="1.5"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 4.8-1"/>',
     // box kinds
     model: '<path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"/><path d="M2.5 5 8 8.2 13.5 5M8 8.2v6"/>',
     table: '<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M2 6.6h12M6.6 6.6V13"/>',
@@ -69,11 +67,9 @@
               <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
             </filter>
           </defs>
-          <g id="ghost-links"></g>
           <g id="edge-layer"></g>
           <path id="temp-edge" class="temp-edge" d=""/>
         </svg>
-        <div id="ghost-layer"></div>
         <div id="node-layer"></div>
       </div>
       <div class="empty" id="empty" hidden></div>
@@ -102,10 +98,8 @@
   const world = $('world');
   const defs = $('defs');
   const edgeLayer = $('edge-layer');
-  const ghostLinks = $('ghost-links');
   const tempEdge = $('temp-edge');
   const nodeLayer = $('node-layer');
-  const ghostLayer = $('ghost-layer');
   const menu = $('menu');
   const toastEl = $('toast');
   const minimap = $('minimap');
@@ -279,12 +273,10 @@
     for (const n of view.nodes) pos.set(n.id, { x: n.x, y: n.y });
 
     nodeLayer.textContent = '';
-    ghostLayer.textContent = '';
     nodeEls.clear();
 
     for (const n of view.nodes) {
       const node = el('div', `node k-${n.kind}`);
-      if (n.kind !== 'planned' && !n.locked) node.classList.add('unlocked');
       node.dataset.id = n.id;
       node.style.setProperty('--c', colorOf(n));
       node.style.transform = `translate(${n.x}px, ${n.y}px)`;
@@ -306,25 +298,9 @@
       text.append(metaRow);
       node.append(text);
 
-      if (n.kind !== 'planned' && n.kind !== 'missing') {
-        const lock = el('span', 'lock');
-        lock.innerHTML = svgIcon(n.locked ? 'lock' : 'lockOpen');
-        lock.title = n.locked ? 'Locked in place' : 'Moved. Right-click to put it back or lock it here.';
-        node.append(lock);
-      }
       if (n.kind !== 'missing') node.append(el('span', 'port out'));
       nodeLayer.append(node);
       nodeEls.set(n.id, node);
-
-      if (n.home) {
-        const ghost = el('div', 'ghost');
-        ghost.dataset.id = n.id;
-        ghost.style.setProperty('--c', colorOf(n));
-        ghost.style.transform = `translate(${n.home.x}px, ${n.home.y}px)`;
-        ghost.title = `${n.name} goes back here. Double-click to put it back.`;
-        ghost.append(el('span', 'ghost-label', n.name));
-        ghostLayer.append(ghost);
-      }
     }
 
     // Each connection fades from the colour of the box it leaves to the box it enters.
@@ -385,14 +361,6 @@
       grad.setAttribute('x2', Math.abs(x2 - x1) < 1 ? x2 + 1 : x2);
       grad.setAttribute('y2', y2);
     }
-    ghostLinks.textContent = '';
-    for (const n of view.nodes) {
-      if (!n.home) continue;
-      const p = pos.get(n.id);
-      const link = svg('path', 'ghost-link');
-      link.setAttribute('d', `M${n.home.x + W / 2},${n.home.y + H / 2} L${p.x + W / 2},${p.y + H / 2}`);
-      ghostLinks.append(link);
-    }
   }
 
   function renderChrome() {
@@ -439,11 +407,14 @@
     const del = $('btn-delete');
     const n = selected && view ? view.nodes.find((x) => x.id === selected) : null;
     del.disabled = !n || n.kind !== 'planned';
-    del.title = !n
-      ? 'Select a box to delete it'
-      : n.kind === 'planned'
-        ? `Delete ${n.name} (Del)`
-        : `${n.name} has a file. Delete the file to remove it.`;
+    del.title = !n ? 'Select a box to delete it' : n.kind === 'planned' ? `Delete ${n.name} (Del)` : whyNoDelete(n);
+  }
+
+  function whyNoDelete(n) {
+    if (n.kind !== 'missing') return `${n.name} has a file. Delete the file to remove it.`;
+    const files = (n.usedBy || []).map((r) => r.split('/').pop());
+    const who = files.length ? files.join(', ') : 'A model';
+    return `${who} still ${files.length === 1 ? 'uses' : 'use'} ref('${n.name}'). Right-click the box to point it to another model, or remove the ref in the file.`;
   }
 
   function renderLegend() {
@@ -464,7 +435,6 @@
     if (kinds.has('seed')) rows.push({ label: 'seeds', color: KIND_COLOR.seed, cls: 'sw' });
     if (kinds.has('snapshot')) rows.push({ label: 'snapshots', color: KIND_COLOR.snapshot, cls: 'sw' });
     if (kinds.has('planned')) rows.push({ label: 'no file yet', color: 'var(--muted)', cls: 'sw dashed' });
-    if (view.unlockedCount) rows.push({ label: 'moved, can be put back', color: 'var(--muted)', cls: 'sw ghosted' });
     if (kinds.has('missing')) rows.push({ label: 'ref to a model that does not exist', color: KIND_COLOR.missing, cls: 'sw dashed' });
     for (const r of rows) {
       const row = el('div', 'legend-row');
@@ -670,16 +640,14 @@
       items.push('-');
       items.push({ label: 'Delete box', hint: 'Del', danger: true, run: () => post({ type: 'deleteBox', id: n.id }) });
     } else if (n.kind === 'missing') {
+      items.push({ label: 'Point refs to another model…', run: () => post({ type: 'retarget', id: n.id }) });
       items.push({ label: 'Plan this model as a box', run: () => post({ type: 'planMissing', id: n.id }) });
+      for (const rel of (n.usedBy || []).slice(0, 5)) {
+        items.push({ label: `Open ${rel.split('/').pop()}`, hint: 'uses this ref', run: () => post({ type: 'openRel', rel }) });
+      }
     } else {
       if (n.rel) items.push({ label: 'Open file', hint: 'Double-click', run: () => post({ type: 'open', id: n.id }) });
-      items.push('-');
-      if (n.locked) {
-        items.push({ label: 'Unlock to move', run: () => post({ type: 'unlock', id: n.id }) });
-      } else {
-        items.push({ label: 'Put back', hint: 'Ctrl+Z also works', run: () => post({ type: 'revert', id: n.id }) });
-        items.push({ label: 'Lock in this spot', run: () => post({ type: 'lockHere', id: n.id }) });
-      }
+      if (n.kind === 'model') items.push({ label: 'Rename…', hint: 'updates refs', run: () => post({ type: 'rename', id: n.id }) });
     }
     items.push('-');
     if (selected === n.id) items.push({ label: 'Clear lineage highlight', hint: 'Esc', run: () => select(null) });
@@ -694,9 +662,6 @@
       { label: 'Create new box', run: () => post({ type: 'createBoxAt', x: snap(w.x - W / 2), y: snap(w.y - H / 2) }) },
       { label: n ? `Create all files (${n})` : 'Create all files', disabled: !n, run: () => post({ type: 'createAll' }) },
       '-',
-      view.unlockedCount
-        ? { label: `Put back moved boxes (${view.unlockedCount})`, run: () => post({ type: 'revertAll' }) }
-        : null,
       { label: 'Tidy up layout', run: () => post({ type: 'tidy' }) },
       { label: 'Fit to view', hint: 'F', run: fit },
       '-',
@@ -733,7 +698,7 @@
   function deleteSelected() {
     const n = selected && nodeById(selected);
     if (n && n.kind === 'planned') post({ type: 'deleteBox', id: n.id });
-    else if (n) toast(`${n.name} has a file. Delete the file to remove it.`);
+    else if (n) toast(whyNoDelete(n), 5200);
   }
 
   // ------------------------------------------------------------------ pointer
@@ -751,10 +716,7 @@
       nodeEl.classList.add('source');
     } else if (e.button === 0 && nodeEl) {
       const n = nodeById(nodeEl.dataset.id);
-      drag = {
-        mode: 'node', id: n.id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y,
-        movable: n.kind === 'planned' || !n.locked, moved: false, hinted: false,
-      };
+      drag = { mode: 'node', id: n.id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false };
     } else if (e.button === 0 || e.button === 1) {
       drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false };
       viewport.classList.add('panning');
@@ -779,13 +741,6 @@
       const dy = e.clientY - drag.sy;
       if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
       drag.moved = true;
-      if (!drag.movable) {
-        if (!drag.hinted) {
-          drag.hinted = true;
-          toast(`${drag.id} is locked to its place. Right-click it and choose Unlock to move it.`);
-        }
-        return;
-      }
       const x = snap(drag.ox + dx / t.k, e.altKey);
       const y = snap(drag.oy + dy / t.k, e.altKey);
       pos.set(drag.id, { x, y });
@@ -822,7 +777,7 @@
       if (node) node.classList.remove('dragging');
       if (!d.moved) {
         select(selected === d.id ? null : d.id);
-      } else if (d.movable) {
+      } else {
         const p = pos.get(d.id);
         const n = nodeById(d.id);
         if (n && (p.x !== n.x || p.y !== n.y)) {
@@ -849,8 +804,6 @@
 
   viewport.addEventListener('dblclick', (e) => {
     if (e.target.closest('.hud, .legend')) return;
-    const ghost = e.target.closest('.ghost');
-    if (ghost) return post({ type: 'revert', id: ghost.dataset.id });
     const nodeEl = e.target.closest('.node');
     if (!nodeEl) return;
     const n = nodeById(nodeEl.dataset.id);
@@ -863,11 +816,9 @@
     e.preventDefault();
     if (!view || drag || e.target.closest('.hud, .legend')) return;
     const hit = e.target.closest('.edge-hit');
-    const ghost = e.target.closest('.ghost');
     const nodeEl = e.target.closest('.node');
     let items;
     if (nodeEl) items = nodeMenu(nodeById(nodeEl.dataset.id));
-    else if (ghost) items = [{ label: 'Put back here', run: () => post({ type: 'revert', id: ghost.dataset.id }) }];
     else if (hit) items = edgeMenu(hit.dataset.from, hit.dataset.to);
     else items = canvasMenu(e.clientX, e.clientY);
     if (items.length) showMenu(items, e.clientX, e.clientY);

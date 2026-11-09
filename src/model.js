@@ -48,6 +48,8 @@ class FlowModel {
         this.loadError = `${STATE_FILE} could not be read (${e.message}). Starting with a fresh layout.`;
       }
     }
+    // Files from 0.2 may carry "home" spots from the old lock mode; boxes now move freely.
+    for (const p of Object.values(this.state.positions)) delete p.home;
     this.undoStack = [];
     this.redoStack = [];
     this.refresh();
@@ -174,8 +176,8 @@ class FlowModel {
         language: n.language || null,
         x: p.x,
         y: p.y,
-        home: p.home || null,
-        locked: n.kind !== 'planned' && !p.home,
+        // For a missing model: the files that still ref() it.
+        usedBy: n.kind === 'missing' ? this.referencesTo(n.id).map((m) => m.rel) : undefined,
       };
     });
     return {
@@ -188,7 +190,6 @@ class FlowModel {
       nodes,
       edges: this.edges,
       plannedCount: nodes.filter((n) => n.kind === 'planned').length,
-      unlockedCount: nodes.filter((n) => n.home).length,
       duplicates: this.scan ? this.scan.duplicates : [],
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
@@ -201,14 +202,16 @@ class FlowModel {
 
   /**
    * Runs `fn` as one undoable step. `fn` gets `write(abs, text)` for file
-   * changes; if it returns { ok: false } or throws, everything is rolled back.
+   * changes (text null deletes the file); if it returns { ok: false } or
+   * throws, everything is rolled back.
    */
   transact(label, fn) {
     const before = clone(this.state);
     const files = [];
     const write = (abs, text) => {
       files.push({ abs, before: this.io.readText(abs), after: text });
-      this.io.writeText(abs, text);
+      if (text === null) this.io.remove(abs);
+      else this.io.writeText(abs, text);
     };
     const rollback = () => {
       for (const f of [...files].reverse()) {
@@ -377,56 +380,105 @@ class FlowModel {
 
   // ---------------------------------------------------------------- positions
 
+  /** Every box moves freely; each move is one undo step. Moving never changes SQL. */
   moveNode(id, x, y) {
-    const n = this.nodes.get(id);
     const p = this.state.positions[id];
-    if (!n || !p) return { ok: false, message: `${id} is not on the canvas.` };
-    if (n.kind !== 'planned' && !p.home) {
-      return { ok: false, message: `${id} is locked. Right-click it and choose Unlock to move it.` };
-    }
+    if (!this.nodes.has(id) || !p) return { ok: false, message: `${id} is not on the canvas.` };
     return this.transact(`Move ${id}`, () => {
       p.x = Math.round(x);
       p.y = Math.round(y);
     });
   }
 
-  unlock(id) {
-    const p = this.state.positions[id];
-    if (!p || p.home) return { ok: true };
-    return this.transact(`Unlock ${id}`, () => {
-      p.home = { x: p.x, y: p.y };
+  /** Gives the position and planned connections of `oldId` to `newId`. */
+  moveIdentity(oldId, newId) {
+    const s = this.state;
+    if (s.positions[oldId]) s.positions[newId] = s.positions[oldId];
+    delete s.positions[oldId];
+    for (const e of s.plannedEdges) {
+      if (e.from === oldId) e.from = newId;
+      if (e.to === oldId) e.to = newId;
+    }
+  }
+
+  // ---------------------------------------------------------------- renaming models with files
+
+  /** Models and snapshots whose SQL has ref() to `name`. */
+  referencesTo(name) {
+    return [...this.nodes.values()].filter(
+      (n) => (n.kind === 'model' || n.kind === 'snapshot') && n.refs && n.refs.includes(name)
+    );
+  }
+
+  /** Files to rewrite when `name` changes, one entry per file. */
+  referencingFiles(name, except) {
+    const byAbs = new Map();
+    for (const n of this.referencesTo(name)) if (n.abs !== except) byAbs.set(n.abs, n.rel);
+    return [...byAbs.entries()].map(([abs, rel]) => ({ abs, rel }));
+  }
+
+  /**
+   * Renames a model's file and updates every ref() to it, as one undo step.
+   * The box keeps its place on the canvas.
+   */
+  renameModel(id, newName) {
+    const n = this.nodes.get(id);
+    if (!n || n.kind !== 'model') return { ok: false, message: `${id} is not a model with a file.` };
+    if (newName === id) return { ok: true };
+    const err = this.validateName(newName, id);
+    if (err) return { ok: false, message: err };
+    const ext = path.extname(n.abs);
+    const newAbs = path.join(path.dirname(n.abs), newName + ext);
+    if (this.io.exists(newAbs)) return { ok: false, message: `${path.relative(this.cfg.root, newAbs)} already exists.` };
+    const files = this.referencingFiles(id, n.abs);
+    for (const f of [{ abs: n.abs, rel: n.rel }, ...files]) {
+      if (this.io.isDirty(f.abs)) return { ok: false, message: `Save ${f.rel} first: it has unsaved changes.` };
+    }
+    return this.transact(`Rename ${id} to ${newName}`, (write) => {
+      write(newAbs, this.io.readText(n.abs));
+      write(n.abs, null);
+      for (const f of files) write(f.abs, replaceRefs(this.io.readText(f.abs), id, newName));
+      this.moveIdentity(id, newName);
+      return { ok: true, id: newName, oldAbs: n.abs, newAbs, updated: files.map((f) => f.rel) };
     });
   }
 
-  lockHere(id) {
-    const p = this.state.positions[id];
-    if (!p || !p.home) return { ok: true };
-    return this.transact(`Lock ${id} in new place`, () => {
-      delete p.home;
+  /** Points every ref('oldName') at `newName` instead. One undo step. */
+  retargetRefs(oldName, newName) {
+    if (oldName === newName) return { ok: true };
+    if (!this.nodes.has(newName) || this.nodes.get(newName).kind === 'missing') {
+      return { ok: false, message: `There is no model called ${newName}.` };
+    }
+    const files = this.referencingFiles(oldName);
+    if (!files.length) return { ok: false, quiet: true, message: `Nothing uses ref('${oldName}').` };
+    for (const f of files) {
+      if (this.io.isDirty(f.abs)) return { ok: false, message: `Save ${f.rel} first: it has unsaved changes.` };
+    }
+    return this.transact(`Point ref('${oldName}') to ${newName}`, (write) => {
+      for (const f of files) write(f.abs, replaceRefs(this.io.readText(f.abs), oldName, newName));
+      return { ok: true, updated: files.map((f) => f.rel) };
     });
   }
 
-  revert(id) {
-    const p = this.state.positions[id];
-    if (!p || !p.home) return { ok: true };
-    return this.transact(`Put ${id} back`, () => {
-      p.x = p.home.x;
-      p.y = p.home.y;
-      delete p.home;
-    });
-  }
-
-  revertAll() {
-    const ids = Object.keys(this.state.positions).filter((id) => this.state.positions[id].home);
-    if (!ids.length) return { ok: true };
-    return this.transact(`Put back ${ids.length} box${ids.length > 1 ? 'es' : ''}`, () => {
-      for (const id of ids) {
-        const p = this.state.positions[id];
-        p.x = p.home.x;
-        p.y = p.home.y;
-        delete p.home;
-      }
-    });
+  /**
+   * Called after a model file was renamed outside the canvas (e.g. in Explorer).
+   * The new name takes over the old box's place. Returns the files that still
+   * ref() the old name, so the caller can offer to update them.
+   */
+  fileRenamed(oldAbs, newAbs) {
+    const nameOf = (abs) => {
+      const ext = path.extname(abs).toLowerCase();
+      if (ext !== '.sql' && ext !== '.py') return null;
+      const inModels = this.cfg.modelDirs.some((d) => !path.relative(d.abs, abs).startsWith('..'));
+      return inModels ? path.basename(abs, path.extname(abs)) : null;
+    };
+    const oldName = nameOf(oldAbs);
+    const newName = nameOf(newAbs);
+    if (!oldName || !newName || oldName === newName) return null;
+    this.moveIdentity(oldName, newName);
+    this.refresh();
+    this.saveState();
+    return { oldName, newName, usedBy: this.referencingFiles(oldName).map((f) => f.rel) };
   }
 
   tidy() {
@@ -579,6 +631,13 @@ class FlowModel {
     const n = this.nodes.get(id);
     return n && n.abs ? n.abs : null;
   }
+}
+
+/** Rewrites ref('old') and ref('pkg', 'old') to the new name, keeping the quote style. */
+function replaceRefs(sql, oldName, newName) {
+  const esc = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(\\bref\\s*\\(\\s*(?:['"][^'"]+['"]\\s*,\\s*)?)(['"])${esc}\\2`, 'g');
+  return sql.replace(re, (_, head, q) => `${head}${q}${newName}${q}`);
 }
 
 function depFor(node) {
