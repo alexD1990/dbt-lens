@@ -21,6 +21,8 @@ class Controller {
       vscode.workspace.textDocuments.some((d) => d.isDirty && d.uri.fsPath === abs)
     );
     this.refreshTimer = null;
+    this.integrations = null; // IntegrationHost, or null if it could not start
+    this.integrationChannels = new Map(); // integration id -> output channel
   }
 
   // ------------------------------------------------------------ project
@@ -158,6 +160,110 @@ class Controller {
     });
   }
 
+  // ------------------------------------------------------------ integrations
+
+  /**
+   * Starts the optional integrations (DAGtracer, ...). See docs/ARCHITECTURE.md.
+   * If anything here fails, integrations stay off and the canvas works as before.
+   */
+  startIntegrations() {
+    try {
+      const { IntegrationHost } = require('./src/host/integrationHost');
+      const names = require('./src/integrations');
+      this.integrations = new IntegrationHost({
+        projectRoot: () => (this.model && this.model.cfg ? this.model.cfg.root : null),
+        view: () => (this.model ? this.model.getView() : null),
+        post: (msg) => {
+          for (const s of this.surfaces) s.webview.postMessage(msg);
+        },
+        setting: (id, key) => vscode.workspace.getConfiguration('dbtFlow').get(`integrations.${id}.${key}`),
+        logger: (id, title) => {
+          if (typeof vscode.window.createOutputChannel !== 'function') return () => {};
+          let ch = this.integrationChannels.get(id);
+          if (!ch) {
+            ch = vscode.window.createOutputChannel(`dbt Flow: ${title}`);
+            this.integrationChannels.set(id, ch);
+            this.context.subscriptions.push(ch);
+          }
+          return (line) => ch.appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
+        },
+      }).load(names);
+      this.integrations.start().catch(() => {});
+    } catch (e) {
+      this.integrations = null;
+      console.error(`dbt Flow: integrations are off (${e.message})`);
+    }
+  }
+
+  /** Re-checks every integration and lists them; picking one opens its log. */
+  async checkIntegrations() {
+    if (!this.integrations) {
+      vscode.window.showWarningMessage('dbt Flow: integrations could not be started. See Help → Toggle Developer Tools → Console.');
+      return;
+    }
+    const list = await this.integrations.recheck();
+    const icons = { ready: '$(pass)', missing: '$(circle-slash)', incompatible: '$(warning)', failed: '$(error)', disabled: '$(debug-pause)' };
+    const items = list.map((s) => ({
+      label: `${icons[s.state] || '$(question)'} ${s.title}`,
+      description: s.state + (s.version ? ` · ${s.version}` : ''),
+      detail: s.reason || undefined,
+      id: s.id,
+    }));
+    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'dbt Flow integrations. Pick one to open its log.' });
+    const ch = pick && this.integrationChannels.get(pick.id);
+    if (ch) ch.show(true);
+  }
+
+  /**
+   * Temporary way to run a DAGtracer trace from the command palette until the
+   * canvas has its own menu for it. The result is written to the DAGtracer log.
+   */
+  async traceColumnPreview() {
+    if (!this.integrations || !this.integrations.isReady('dagtracer')) {
+      vscode.window.showWarningMessage('dbt Flow: DAGtracer is not ready. Run "dbt Flow: Check Integrations" to see why.');
+      return;
+    }
+    if (!this.model) return;
+    const mode = await vscode.window.showQuickPick(
+      [
+        { label: '$(question) Why is a column missing here?', description: 'upstream from one box', direction: 'up' },
+        { label: '$(arrow-down) Trace a column downstream', description: 'from one or more boxes', direction: 'down' },
+      ],
+      { placeHolder: 'DAGtracer' }
+    );
+    if (!mode) return;
+    const ed = vscode.window.activeTextEditor;
+    const activePath = ed ? ed.document.uri.fsPath : null;
+    const nodes = this.model
+      .getView()
+      .nodes.filter((n) => ['model', 'seed', 'snapshot', 'source'].includes(n.kind))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const activeId = [...this.model.nodes.values()].find((n) => n.abs && n.abs === activePath)?.id;
+    const items = nodes.map((n) => ({
+      label: n.id,
+      description: n.id === activeId ? 'open in the editor' : n.folder || n.kind,
+      picked: n.id === activeId,
+      id: n.id,
+    }));
+    if (activeId) items.sort((a, b) => (b.id === activeId) - (a.id === activeId));
+    const many = mode.direction === 'down';
+    const pick = await vscode.window.showQuickPick(items, {
+      placeHolder: many ? 'Start from which boxes? (pick one or more)' : 'Which box is the column missing from?',
+      canPickMany: many,
+    });
+    const starts = (Array.isArray(pick) ? pick : pick ? [pick] : []).map((p) => p.id);
+    if (!starts.length) return;
+    const column = await vscode.window.showInputBox({
+      prompt: 'Column to trace',
+      placeHolder: 'e.g. region',
+      validateInput: (v) => (/^[A-Za-z_][A-Za-z0-9_$]*$/.test(v.trim()) ? null : 'Use letters, numbers and _.'),
+    });
+    if (!column) return;
+    const ch = this.integrationChannels.get('dagtracer');
+    if (ch) ch.show(true);
+    await this.integrations.handle({ type: 'dagtracer/trace', starts, column: column.trim(), direction: mode.direction });
+  }
+
   // ------------------------------------------------------------ messages
 
   report(result, successMessage) {
@@ -173,7 +279,14 @@ class Controller {
   async handle(msg, surface) {
     if (msg.type === 'ready') {
       if (!this.model) this.loadProject();
-      return this.broadcast();
+      this.broadcast();
+      if (this.integrations) this.integrations.announce();
+      return;
+    }
+    // "<integration>/<action>" goes to the integration host, which never throws.
+    if (typeof msg.type === 'string' && msg.type.includes('/')) {
+      if (this.integrations) await this.integrations.handle(msg);
+      return;
     }
     const m = this.model;
     if (!m) return;
@@ -450,6 +563,9 @@ function activate(context) {
     vscode.commands.registerCommand('dbtFlow.tidy', () => ctl.handle({ type: 'tidy' })),
     vscode.commands.registerCommand('dbtFlow.createAll', () => ctl.handle({ type: 'createAll' })),
     vscode.commands.registerCommand('dbtFlow.selectProject', () => ctl.selectProject()),
+    vscode.commands.registerCommand('dbtFlow.checkIntegrations', () => ctl.checkIntegrations()),
+    vscode.commands.registerCommand('dbtFlow.traceColumn', () => ctl.traceColumnPreview()),
+    { dispose: () => ctl.integrations && ctl.integrations.dispose() },
     vscode.window.onDidChangeActiveTextEditor(() => ctl.postActiveFile()),
     vscode.workspace.onDidRenameFiles((e) =>
       ctl.onFilesRenamed(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))
@@ -465,6 +581,16 @@ function activate(context) {
       }
     })
   );
+
+  // Optional tools (DAGtracer, ...). Runs in the background; the canvas never waits for it.
+  ctl.startIntegrations();
+  if (vscode.workspace.onDidChangeConfiguration) {
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('dbtFlow.integrations') && ctl.integrations) ctl.integrations.recheck();
+      })
+    );
+  }
 
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{sql,py,csv,yml,yaml}');
   const onChange = () => ctl.scheduleRefresh();

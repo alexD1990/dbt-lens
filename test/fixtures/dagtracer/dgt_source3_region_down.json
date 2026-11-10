@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0",
+  "tool_version": "0.1.0",
+  "status": "complete",
+  "run": {
+    "start": {
+      "unique_id": "model.tpch_dbt.source3",
+      "name": "source3",
+      "resource_type": "model",
+      "status": "present",
+      "values": {}
+    },
+    "column": "region",
+    "column_type": "VARCHAR",
+    "values": [],
+    "direction": "down",
+    "full_trace": false,
+    "target": null,
+    "started_at": "2026-11-10T11:18:00.078Z",
+    "finished_at": "2026-11-10T11:18:00.084Z",
+    "stats": {
+      "nodes_visited": 3,
+      "nodes_probed": 5,
+      "value_queries": 0,
+      "query_errors": 0,
+      "findings": 1,
+      "uncertain_findings": 0
+    }
+  },
+  "traversals": {
+    "up": null,
+    "down": {
+      "nodes": [
+        {
+          "unique_id": "model.tpch_dbt.prep2",
+          "name": "prep2",
+          "resource_type": "model",
+          "level": 1,
+          "status": "present",
+          "values": {},
+          "column_type": "VARCHAR",
+          "unknown_reason": null,
+          "detail": null,
+          "stopped": false,
+          "reached_from": "model.tpch_dbt.source3"
+        },
+        {
+          "unique_id": "model.tpch_dbt.mart",
+          "name": "mart",
+          "resource_type": "model",
+          "level": 2,
+          "status": "absent",
+          "values": {},
+          "column_type": null,
+          "unknown_reason": null,
+          "detail": null,
+          "stopped": true,
+          "reached_from": "model.tpch_dbt.prep2"
+        }
+      ]
+    }
+  },
+  "findings": [
+    {
+      "direction": "down",
+      "level": 2,
+      "cause": "column_dropped",
+      "node": {
+        "unique_id": "model.tpch_dbt.mart",
+        "name": "mart",
+        "resource_type": "model"
+      },
+      "values": {},
+      "uncertain": false,
+      "candidates": [],
+      "parents": [
+        {
+          "unique_id": "model.tpch_dbt.prep1",
+          "name": "prep1",
+          "resource_type": "model",
+          "status": "absent",
+          "values": {},
+          "via": []
+        },
+        {
+          "unique_id": "model.tpch_dbt.prep2",
+          "name": "prep2",
+          "resource_type": "model",
+          "status": "present",
+          "values": {},
+          "via": []
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "error": null
+}

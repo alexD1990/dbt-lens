@@ -68,6 +68,16 @@
         "command": "dbtFlow.selectProject",
         "title": "Choose dbt Project…",
         "category": "dbt Flow"
+      },
+      {
+        "command": "dbtFlow.checkIntegrations",
+        "title": "Check Integrations",
+        "category": "dbt Flow"
+      },
+      {
+        "command": "dbtFlow.traceColumn",
+        "title": "Trace Column (preview)",
+        "category": "dbt Flow"
       }
     ],
     "menus": {
@@ -101,11 +111,27 @@
           "type": "boolean",
           "default": true,
           "description": "Open the new .sql file after Create file."
+        },
+        "dbtFlow.integrations.dagtracer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use DAGtracer (dgt) to trace where a column stops in the DAG, when dgt is installed."
+        },
+        "dbtFlow.integrations.dagtracer.executable": {
+          "type": "string",
+          "default": "dgt",
+          "description": "The dgt command, or its full path, e.g. /home/you/projects/dagtracer/.venv/bin/dgt."
+        },
+        "dbtFlow.integrations.dagtracer.timeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 5,
+          "description": "Stop a dgt run that takes longer than this."
         }
       }
     }
   },
   "scripts": {
-    "test": "node --test test/model.test.js test/extension.test.js"
+    "test": "node --test test/model.test.js test/extension.test.js test/host.test.js test/dagtracer.test.js test/architecture.test.js"
   }
 }

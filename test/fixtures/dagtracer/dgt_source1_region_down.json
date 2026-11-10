@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "tool_version": "0.1.0",
+  "status": "complete",
+  "run": {
+    "start": {
+      "unique_id": "model.tpch_dbt.source1",
+      "name": "source1",
+      "resource_type": "model",
+      "status": "present",
+      "values": {}
+    },
+    "column": "region",
+    "column_type": "VARCHAR",
+    "values": [],
+    "direction": "down",
+    "full_trace": false,
+    "target": null,
+    "started_at": "2026-11-10T11:18:00.010Z",
+    "finished_at": "2026-11-10T11:18:00.016Z",
+    "stats": {
+      "nodes_visited": 2,
+      "nodes_probed": 3,
+      "value_queries": 0,
+      "query_errors": 0,
+      "findings": 1,
+      "uncertain_findings": 0
+    }
+  },
+  "traversals": {
+    "up": null,
+    "down": {
+      "nodes": [
+        {
+          "unique_id": "model.tpch_dbt.prep1",
+          "name": "prep1",
+          "resource_type": "model",
+          "level": 1,
+          "status": "absent",
+          "values": {},
+          "column_type": null,
+          "unknown_reason": null,
+          "detail": null,
+          "stopped": true,
+          "reached_from": "model.tpch_dbt.source1"
+        }
+      ]
+    }
+  },
+  "findings": [
+    {
+      "direction": "down",
+      "level": 1,
+      "cause": "column_dropped",
+      "node": {
+        "unique_id": "model.tpch_dbt.prep1",
+        "name": "prep1",
+        "resource_type": "model"
+      },
+      "values": {},
+      "uncertain": false,
+      "candidates": [],
+      "parents": [
+        {
+          "unique_id": "model.tpch_dbt.source1",
+          "name": "source1",
+          "resource_type": "model",
+          "status": "present",
+          "values": {},
+          "via": []
+        },
+        {
+          "unique_id": "model.tpch_dbt.source2",
+          "name": "source2",
+          "resource_type": "model",
+          "status": "absent",
+          "values": {},
+          "via": []
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "error": null
+}
