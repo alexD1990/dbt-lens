@@ -139,6 +139,6 @@
     }
   },
   "scripts": {
-    "test": "node --test test/model.test.js test/extension.test.js test/aliases.test.js test/host.test.js test/dagtracer.test.js test/dagtracer-ui.test.js test/architecture.test.js"
+    "test": "node --test test/model.test.js test/extension.test.js test/removeref.test.js test/aliases.test.js test/host.test.js test/dagtracer.test.js test/dagtracer-ui.test.js test/architecture.test.js"
   }
 }

@@ -103,4 +103,58 @@ function insertDependency(sql, dep) {
   return { sql: head + sep + newBody, changed: true };
 }
 
-module.exports = { generateModelSql, insertDependency, alreadyDepends, headerLength, depExpression };
+/**
+ * The reverse of insertDependency: removes the import CTE for `dep`
+ * (`name as ( select * from {{ ref('x') }} )`) with its comma, and `with` when
+ * it was the only CTE. Returns { sql, changed, reason }.
+ *
+ * It only removes what it can remove safely. Nothing changes, with a reason, when:
+ *   'not-found'  the file does not use the dependency at all
+ *   'not-import' it is used, but not as a plain `select *` import CTE
+ *   'in-use'     the CTE's name is used elsewhere in the file (a from, a join, a column)
+ *   'other-use'  the dependency is also used outside the import CTE
+ *   'unexpected' the text around the CTE is not what dbt Flow understands
+ */
+function removeImportCte(sql, dep) {
+  const call = dep.kind === 'source'
+    ? `source\\s*\\(\\s*['"]${escapeRe(dep.source)}['"]\\s*,\\s*['"]${escapeRe(dep.table)}['"]\\s*\\)`
+    : `ref\\s*\\(\\s*(?:['"][^'"]+['"]\\s*,\\s*)?['"]${escapeRe(dep.name)}['"]\\s*(?:,[^)]*)?\\)`;
+  const cte = new RegExp(`([A-Za-z_][A-Za-z0-9_]*)\\s+as\\s*\\(\\s*select\\s+\\*\\s+from\\s+\\{\\{-?\\s*${call}\\s*-?\\}\\}\\s*\\)`, 'i');
+  const unchanged = (reason) => ({ sql, changed: false, reason });
+  const m = cte.exec(sql);
+  if (!m) return unchanged(alreadyDepends(sql, dep) ? 'not-import' : 'not-found');
+
+  const name = m[1];
+  const start = m.index;
+  const end = m.index + m[0].length;
+  const outside = sql.slice(0, start) + ' ' + sql.slice(end);
+  if (alreadyDepends(outside, dep)) return unchanged('other-use');
+  if (new RegExp(`(^|[^A-Za-z0-9_])${escapeRe(name)}([^A-Za-z0-9_]|$)`, 'i').test(stripSqlComments(outside))) {
+    return unchanged('in-use');
+  }
+
+  // Followed by a comma: remove the CTE, the comma and the space up to the next CTE.
+  const after = /^\s*,\s*/.exec(sql.slice(end));
+  if (after) return { sql: sql.slice(0, start) + sql.slice(end + after[0].length), changed: true, reason: null };
+
+  // The last CTE after others: remove the comma before it as well.
+  const before = /,\s*$/.exec(sql.slice(0, start));
+  if (before) return { sql: sql.slice(0, before.index) + sql.slice(end), changed: true, reason: null };
+
+  // The only CTE: remove `with` too, and the space up to what follows.
+  const withKw = /\bwith\s*$/i.exec(sql.slice(0, start));
+  if (withKw) {
+    const rest = sql.slice(end).replace(/^\s+/, '');
+    return { sql: sql.slice(0, withKw.index) + rest, changed: true, reason: null };
+  }
+  return unchanged('unexpected');
+}
+
+function stripSqlComments(text) {
+  return text
+    .replace(/\{#[\s\S]*?#\}/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ');
+}
+
+module.exports = { generateModelSql, insertDependency, removeImportCte, alreadyDepends, headerLength, depExpression };

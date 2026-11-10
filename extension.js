@@ -377,6 +377,8 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       }
       case 'retarget':
         return this.retarget(msg.id);
+      case 'removeRefs':
+        return this.removeRefs(msg.id);
       case 'changeFolder': {
         const place = await this.pickFolder(msg.id, true);
         if (!place) return;
@@ -515,6 +517,60 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
   }
 
   /**
+   * Red box (a ref to a model with no file): remove the import CTEs that ref()
+   * it, after asking. Files that use the model further than the import are
+   * not touched; dbt Flow offers to open them instead.
+   */
+  async removeRefs(name, { confirmed = false } = {}) {
+    const m = this.model;
+    const { auto, manual } = m.planRemoveRefs(name);
+    if (auto.length) {
+      const files = auto.map((f) => f.rel);
+      const where = files.length === 1 ? files[0] : `${files.length} files`;
+      const ok = confirmed || (await this.confirmRefEdits(`Remove ref('${name}') from ${where}?`, files));
+      if (ok) this.report(m.removeRefs(name), `Removed ref('${name}') from ${where}`);
+    }
+    if (manual.length) {
+      const first = manual[0];
+      const others = manual.length > 1 ? ` and ${manual.length - 1} more` : '';
+      const choice = await vscode.window.showWarningMessage(
+        `${first.rel}${others} uses ${name} beyond the import at the top, so remove ref('${name}') there by hand.`,
+        'Open file'
+      );
+      if (choice) await this.openPath(first.abs, this.panelSurface());
+    }
+  }
+
+  /**
+   * A model file was deleted in VS Code (Explorer): if other models still ref()
+   * it, ask once whether to remove those refs, so no red box is left behind.
+   * Deleting with rm in a terminal does not reach here; the red box's
+   * "Remove ref" menu item covers that case.
+   */
+  async onFilesDeleted(files) {
+    const m = this.model;
+    if (!m) return;
+    m.refresh();
+    this.broadcast();
+    for (const uri of files) {
+      const ext = path.extname(uri.fsPath).toLowerCase();
+      if (ext !== '.sql' && ext !== '.py') continue;
+      const name = path.basename(uri.fsPath, ext);
+      const node = m.nodes.get(name);
+      if (!node || node.kind !== 'missing') continue;
+      const users = m.referencingFiles(name).map((f) => f.rel);
+      if (!users.length) continue;
+      const who = users.length === 1 ? users[0] : `${users.length} files`;
+      const choice = await vscode.window.showInformationMessage(
+        `${name} was deleted, but ${who} still ${users.length === 1 ? 'uses' : 'use'} ref('${name}'). Remove the ref?`,
+        { modal: true, detail: `${users.slice(0, 8).join('\n')}\n\nOnly the import CTE at the top is removed. Undo in dbt Flow puts it back.` },
+        'Remove ref'
+      );
+      if (choice) await this.removeRefs(name, { confirmed: true });
+    }
+  }
+
+  /**
    * A model file was renamed in Explorer: keep its box in place and update the
    * refs to it, asking the same way as a rename on the canvas does (a dialog,
    * or no question at all when dbtFlow.confirmFileEdits is off).
@@ -632,6 +688,11 @@ function activate(context) {
     vscode.workspace.onDidRenameFiles((e) =>
       ctl.onFilesRenamed(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))
     ),
+    vscode.workspace.onDidDeleteFiles
+      ? vscode.workspace.onDidDeleteFiles((e) =>
+          ctl.onFilesDeleted(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))
+        )
+      : { dispose() {} },
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       ctl.loadProject();
       ctl.broadcast();

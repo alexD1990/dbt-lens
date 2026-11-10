@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { readConfig, scanProject } = require('./project');
-const { generateModelSql, insertDependency } = require('./sqlgen');
+const { generateModelSql, insertDependency, removeImportCte } = require('./sqlgen');
 const { layeredLayout, placeNew } = require('./layout');
 
 const STATE_FILE = '.dbtflow.json';
@@ -556,6 +556,41 @@ class FlowModel {
     return this.transact(`Point ref('${oldName}') to ${newName}`, (write) => {
       for (const f of files) write(f.abs, replaceRefs(this.io.readText(f.abs), oldName, newName));
       return { ok: true, updated: files.map((f) => f.rel) };
+    });
+  }
+
+  /**
+   * Files that ref() `name`, split into those where dbt Flow can remove the
+   * import CTE (`auto`) and those that use it further and need a hand (`manual`,
+   * with the reason from removeImportCte).
+   */
+  planRemoveRefs(name) {
+    const auto = [];
+    const manual = [];
+    for (const f of this.referencingFiles(name)) {
+      const r = removeImportCte(this.io.readText(f.abs) || '', { kind: 'ref', name });
+      (r.changed ? auto : manual).push({ ...f, reason: r.reason });
+    }
+    return { auto, manual };
+  }
+
+  /**
+   * Removes the import CTE for ref('name') from every file where that is safe,
+   * e.g. after the model's file was deleted. One undo step. Files that use the
+   * model further are left alone and listed in `manual`.
+   */
+  removeRefs(name) {
+    const { auto, manual } = this.planRemoveRefs(name);
+    const manualRels = manual.map((f) => f.rel);
+    if (!auto.length) {
+      return { ok: false, quiet: true, manual: manualRels, message: `No file has a plain import of ref('${name}') to remove.` };
+    }
+    for (const f of auto) {
+      if (this.io.isDirty(f.abs)) return { ok: false, message: `Save ${f.rel} first: it has unsaved changes.`, manual: manualRels };
+    }
+    return this.transact(`Remove ref('${name}')`, (write) => {
+      for (const f of auto) write(f.abs, removeImportCte(this.io.readText(f.abs), { kind: 'ref', name }).sql);
+      return { ok: true, updated: auto.map((f) => f.rel), manual: manualRels };
     });
   }
 

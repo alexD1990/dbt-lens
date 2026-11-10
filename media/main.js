@@ -680,6 +680,10 @@
       items.push({ label: 'Delete box', hint: 'Del', danger: true, run: () => post({ type: 'deleteBox', id: n.id }) });
     } else if (n.kind === 'missing') {
       items.push({ label: 'Point refs to another model…', run: () => post({ type: 'retarget', id: n.id }) });
+      if (n.usedBy && n.usedBy.length) {
+        const where = n.usedBy.length === 1 ? n.usedBy[0].split('/').pop() : `${n.usedBy.length} files`;
+        items.push({ label: `Remove ref from ${where}`, hint: 'import at the top', run: () => post({ type: 'removeRefs', id: n.id }) });
+      }
       items.push({ label: 'Plan this model as a box', run: () => post({ type: 'planMissing', id: n.id }) });
       for (const rel of (n.usedBy || []).slice(0, 5)) {
         items.push({ label: `Open ${rel.split('/').pop()}`, hint: 'uses this ref', run: () => post({ type: 'openRel', rel }) });
