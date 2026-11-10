@@ -1,0 +1,368 @@
+/* DAGtracer overlay on the canvas: where a column comes from, where it stops.
+   Loaded after main.css. Every rule is scoped to dgt-* classes. */
+
+:root {
+  --dgt-ok: var(--vscode-testing-iconPassed, #3fb950);
+  --dgt-bad: var(--vscode-testing-iconFailed, #f85149);
+  --dgt-warn: var(--vscode-editorWarning-foreground, #d29922);
+}
+
+/* ------------------------------------------------------------ boxes */
+
+.viewport.dgt-on .node.dgt-off {
+  opacity: 0.12;
+}
+
+.node.dgt-has {
+  border-color: var(--dgt-ok);
+  box-shadow:
+    0 0 0 1.5px var(--dgt-ok),
+    0 0 calc(26px * var(--glow) + 4px) color-mix(in srgb, var(--dgt-ok) calc(40% * var(--glow) + 15%), transparent);
+}
+
+.node.dgt-lost {
+  border-color: var(--dgt-bad);
+  box-shadow:
+    0 0 0 1.5px var(--dgt-bad),
+    0 0 calc(26px * var(--glow) + 4px) color-mix(in srgb, var(--dgt-bad) calc(40% * var(--glow) + 15%), transparent);
+}
+
+.node.dgt-lacks {
+  opacity: 0.5;
+  filter: saturate(0.3);
+}
+
+.node.dgt-unknown {
+  opacity: 0.75;
+  outline: 1.5px dashed var(--muted);
+  outline-offset: 3px;
+}
+
+.node.dgt-start {
+  outline: 2px solid color-mix(in srgb, var(--fg) 75%, transparent);
+  outline-offset: 4px;
+  z-index: 2;
+}
+
+.node.dgt-flash {
+  animation: dgt-flash 900ms ease-out;
+}
+
+@keyframes dgt-flash {
+  30% {
+    filter: brightness(1.9);
+  }
+}
+
+.dgt-badges {
+  position: absolute;
+  right: 10px;
+  top: -9px;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.dgt-badge {
+  padding: 0 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--dgt-ok);
+  background: var(--card);
+  border: 1px solid currentColor;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.dgt-badge.bad {
+  color: var(--dgt-bad);
+}
+
+.dgt-badge.warn {
+  color: var(--dgt-warn);
+}
+
+.dgt-badge.muted {
+  color: var(--muted);
+}
+
+.dgt-badge.start {
+  color: var(--fg);
+}
+
+/* ------------------------------------------------------------ connections */
+
+.viewport.dgt-on .edge.dgt-off .line {
+  opacity: 0.07;
+}
+
+.edge.dgt-flow .line {
+  stroke: var(--dgt-ok);
+  stroke-width: 2.6;
+  opacity: 1;
+}
+
+.edge.dgt-flow .pulse {
+  opacity: 0.9;
+  animation: flow 1.1s linear infinite;
+}
+
+.edge.dgt-cut .line {
+  stroke: var(--dgt-bad);
+  stroke-width: 2;
+  stroke-dasharray: 4 6;
+  opacity: 0.9;
+}
+
+.edge.dgt-cut.dgt-maybe .line {
+  stroke: var(--dgt-warn);
+}
+
+.dgt-mark {
+  cursor: help;
+}
+
+.dgt-mark circle {
+  fill: var(--card);
+  stroke: var(--dgt-bad);
+  stroke-width: 2;
+}
+
+.dgt-mark path {
+  stroke: var(--dgt-bad);
+  stroke-width: 2.4;
+}
+
+.dgt-mark.dgt-maybe circle {
+  stroke: var(--dgt-warn);
+  stroke-dasharray: 3 3;
+}
+
+.dgt-mark.dgt-maybe path {
+  stroke: var(--dgt-warn);
+}
+
+/* ------------------------------------------------------------ the wave
+   When a result arrives, boxes, lines and crosses light up one level at a
+   time, outwards from the box the trace started at. */
+
+.viewport.dgt-anim .node:not(.dgt-off),
+.viewport.dgt-anim .edge:not(.dgt-off) .line {
+  animation: dgt-in 520ms ease-out both;
+  animation-delay: var(--dgt-d, 0ms);
+}
+
+.viewport.dgt-anim .dgt-mark-in {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dgt-pop 460ms cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  animation-delay: calc(var(--dgt-d, 0ms) + 160ms);
+}
+
+@keyframes dgt-in {
+  from {
+    opacity: 0.08;
+    filter: brightness(2);
+  }
+}
+
+@keyframes dgt-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+}
+
+/* ------------------------------------------------------------ panel */
+
+.dgt-panel {
+  left: 58px;
+  top: 12px;
+  z-index: 2;
+  width: 290px;
+  max-width: calc(100% - 80px);
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 10px 12px 12px;
+  font-size: 12px;
+  user-select: text;
+}
+
+.dgt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dgt-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.dgt-col {
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dgt-type {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--glass-line);
+  border-radius: 7px;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.dgt-close {
+  flex: none;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.dgt-close:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--focus) 20%, transparent);
+}
+
+.dgt-sub {
+  margin: 2px 0 6px;
+  color: var(--muted);
+}
+
+.dgt-sec {
+  margin-top: 8px;
+}
+
+.dgt-sec-title {
+  margin-bottom: 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dgt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.dgt-row:hover {
+  background: color-mix(in srgb, var(--focus) 18%, transparent);
+}
+
+.dgt-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dgt-ok);
+  box-shadow: 0 0 6px var(--dgt-ok);
+}
+
+.dgt-row.bad .dgt-dot {
+  background: var(--dgt-bad);
+  box-shadow: 0 0 6px var(--dgt-bad);
+}
+
+.dgt-row.warn .dgt-dot {
+  background: var(--dgt-warn);
+  box-shadow: none;
+}
+
+.dgt-note {
+  margin: 6px 0 0;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.dgt-note.warn {
+  color: var(--dgt-warn);
+}
+
+.dgt-btn {
+  margin-top: 10px;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+}
+
+.dgt-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.dgt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--glass-line);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dgt-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dgt-key i {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--dgt-ok);
+}
+
+.dgt-key.bad i {
+  background: repeating-linear-gradient(90deg, var(--dgt-bad) 0 4px, transparent 4px 7px);
+}
+
+.dgt-key.muted i {
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+.dgt-spin {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--glass-line);
+  border-top-color: var(--focus);
+  animation: dgt-spin 0.8s linear infinite;
+}
+
+@keyframes dgt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -196,12 +196,14 @@ function fakeDgt({ missing = false } = {}) {
     if (start === 'source1' && direction === 'down') return okRun(fixtureText('dgt_source1_region_down.json'));
     if (start === 'source3' && direction === 'down') return okRun(fixtureText('dgt_source3_region_down.json'));
     if (start === 'source2' || start === 'source4') return okRun(absentStart(start));
+    if (start === 'prep2' && direction === 'both') return okRun(fixtureText('dgt_prep2_region_both.json'));
+    if (start === 'mart' && direction === 'both') return okRun(absentStart('mart'));
     return okRun('', 2);
   };
   return { run, calls };
 }
 
-async function hostWith(dgt, settings = {}) {
+async function hostWith(dgt, settings = {}, services = {}) {
   const posted = [];
   const host = new IntegrationHost({
     projectRoot: () => '/home/alex/projects/dbt-lab/tpch_dbt',
@@ -210,6 +212,7 @@ async function hostWith(dgt, settings = {}) {
     setting: (id, key) => settings[key],
     logger: () => () => {},
     run: dgt.run,
+    ...services,
   });
   host.register(dagtracer);
   await host.start();
@@ -316,4 +319,100 @@ test('dagtracer: each trace writes a readable summary to its log', async () => {
   assert.match(text, /Skipped source2: region is not in source2\./);
   await host.handle({ type: 'dagtracer/trace', starts: ['mart'], column: '', direction: 'up' });
   assert.match(lines.at(-1), /refused/);
+});
+
+// ---------------------------------------------------------------- trace a box (up and down)
+
+test('dagtracer: tracing a box runs dgt both ways and shows where the column starts and stops', async () => {
+  const dgt = fakeDgt();
+  const { host, posted } = await hostWith(dgt);
+  await host.handle({ type: 'dagtracer/traceBox', id: 'prep2', column: 'region' });
+  assert.deepEqual(dgt.calls.at(-1).args.slice(0, 5), ['prep2', '-c', 'region', '-d', 'both']);
+  const res = posted.find((m) => m.type === 'dagtracer/result');
+  assert.deepEqual(res.request, { column: 'region', direction: 'both', starts: ['prep2'] });
+  assert.equal(res.absent, null);
+  assert.deepEqual(crossingPairs(res.trace), ['prep2->mart']);
+  assert.deepEqual(res.trace.markers.map((m) => `${m.cause}:${m.id}`), ['present_at_source:raw_stores']);
+  assert.equal(res.trace.nodes.prep2.start, true);
+  assert.equal(res.trace.nodes.source3.level, -1);
+  assert.equal(res.trace.nodes.mart.level, 1);
+});
+
+test('dagtracer: a column that is not in the box is reported as absent, not drawn', async () => {
+  const { host, posted } = await hostWith(fakeDgt());
+  await host.handle({ type: 'dagtracer/traceBox', id: 'mart', column: 'region' });
+  const res = posted.find((m) => m.type === 'dagtracer/result');
+  assert.deepEqual(res.absent, { id: 'mart', column: 'region' });
+  assert.equal(res.trace, null);
+});
+
+test('dagtracer: without a column it offers the box columns from catalog.json', async () => {
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'dbtflow-cat-'));
+  fs.mkdirSync(path.join(root, 'target'));
+  fs.writeFileSync(path.join(root, 'target', 'catalog.json'), JSON.stringify({
+    nodes: {
+      'model.tpch_dbt.prep2': { columns: {
+        REGION: { name: 'region', type: 'VARCHAR', index: 3 },
+        STORE_ID: { name: 'store_id', type: 'INTEGER', index: 1 },
+      } },
+    },
+    sources: {},
+  }));
+  let offered = null;
+  const dgt = fakeDgt();
+  const { host, posted } = await hostWith(dgt, {}, {
+    projectRoot: () => root,
+    pick: async (opts) => ((offered = opts), 'region'),
+    ask: async () => { throw new Error('should pick, not ask'); },
+  });
+  await host.handle({ type: 'dagtracer/traceBox', id: 'prep2' });
+  assert.deepEqual(offered.items, [{ label: 'store_id', description: 'INTEGER' }, { label: 'region', description: 'VARCHAR' }]);
+  assert.equal(offered.allowTyped, true);
+  assert.deepEqual(crossingPairs(posted.find((m) => m.type === 'dagtracer/result').trace), ['prep2->mart']);
+});
+
+test('dagtracer: without a catalog it asks for the name; cancelling runs nothing', async () => {
+  const dgt = fakeDgt();
+  let asked = 0;
+  // An empty folder, so a real catalog.json on this machine cannot answer instead.
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'dbtflow-nocat-'));
+  const { host, posted } = await hostWith(dgt, {}, { projectRoot: () => root, ask: async () => (asked++, undefined) });
+  const before = dgt.calls.length;
+  await host.handle({ type: 'dagtracer/traceBox', id: 'prep2' });
+  assert.equal(asked, 1);
+  assert.equal(dgt.calls.length, before);
+  assert.ok(!posted.some((m) => m.type === 'dagtracer/started'));
+});
+
+test('dagtracer: boxes without a file cannot be traced', async () => {
+  const { host, posted } = await hostWith(fakeDgt());
+  await host.handle({ type: 'dagtracer/traceBox', id: 'nope', column: 'region' });
+  assert.match(lastError(posted).message, /no model, seed, snapshot or source/);
+});
+
+test('dagtracer: a missing manifest or catalog gets a hint to build first', async () => {
+  const run = async (cmd, args) =>
+    args[0] === '--version'
+      ? okRun('dgt 0.1.0')
+      : { ok: false, code: 2, stdout: '', stderr: 'dgt: error: target/manifest.json not found\n', durationMs: 3, error: null };
+  const { host, posted } = await hostWith({ run });
+  await host.handle({ type: 'dagtracer/traceBox', id: 'prep2', column: 'region' });
+  const res = posted.find((m) => m.type === 'dagtracer/result');
+  assert.match(res.errors[0].message, /manifest\.json not found\. Run dbt build and dbt docs generate/);
+});
+
+test('catalog: columns for models, seeds and sources; null when there is no catalog', () => {
+  const { columnsFor } = require('../src/integrations/dagtracer/catalog');
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'dbtflow-cat-'));
+  assert.equal(columnsFor(root, 'prep2'), null);
+  fs.mkdirSync(path.join(root, 'target'));
+  fs.writeFileSync(path.join(root, 'target', 'catalog.json'), JSON.stringify({
+    nodes: { 'seed.p.raw_orders': { columns: { a: { name: 'order_id', type: 'INTEGER', index: 1 } } } },
+    sources: { 'source.p.raw.orders': { columns: { b: { name: 'id', type: 'BIGINT', index: 1 } } } },
+  }));
+  assert.deepEqual(columnsFor(root, 'raw_orders'), [{ name: 'order_id', type: 'INTEGER' }]);
+  assert.deepEqual(columnsFor(root, 'source:raw.orders'), [{ name: 'id', type: 'BIGINT' }]);
+  assert.equal(columnsFor(root, 'mart'), null);
+  fs.writeFileSync(path.join(root, 'target', 'catalog.json'), '{ broken');
+  assert.equal(columnsFor(root, 'raw_orders'), null);
 });

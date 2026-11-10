@@ -77,3 +77,16 @@ test('every listed integration has a folder', () => {
   const list = require('../src/integrations');
   for (const name of list) assert.ok(fs.existsSync(path.join(SRC, 'integrations', name, 'index.js')), name);
 });
+
+test('canvas add-ons only use the API main.js gives them', () => {
+  const dir = path.join(__dirname, '..', 'media', 'integrations');
+  const list = require('../src/integrations');
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const id = file.slice(0, -3);
+    const text = fs.readFileSync(path.join(dir, file), 'utf8');
+    assert.ok(list.includes(id), `media/integrations/${file} has no integration called ${id}`);
+    assert.doesNotMatch(text, /acquireVsCodeApi/, `${file} must post through its API, not its own VS Code handle`);
+    assert.match(text, /window\.dbtFlowPlugins/, `${file} must register through window.dbtFlowPlugins`);
+    assert.match(text, new RegExp(`id: '${id}'`), `${file} must register with id '${id}'`);
+  }
+});

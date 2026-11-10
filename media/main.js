@@ -126,6 +126,9 @@
   const nodeEls = new Map();
   const edgeEls = []; // { e, g, line, pulse, hit, grad }
   let drag = null;
+  // Integration UIs (media/integrations/*.js) hook in here; see "integrations" below.
+  const hooks = { message: [], nodeMenu: [], canvasMenu: [], decorate: [], edgesMoved: [], escape: [] };
+  let overlayActive = false; // an integration draws on the canvas; lineage highlight steps aside
 
   const persist = () => vscode.setState({ t, selected });
   const post = (msg) => vscode.postMessage(msg);
@@ -344,6 +347,7 @@
     renderChrome();
     applyHighlight();
     drawMinimap();
+    runHooks('decorate');
   }
 
   const isTB = () => !!view && view.direction === 'TB';
@@ -383,6 +387,7 @@
       grad.setAttribute('x2', Math.abs(x2 - x1) < 1 ? x2 + 1 : x2);
       grad.setAttribute('y2', y2);
     }
+    runHooks('edgesMoved', onlyId);
   }
 
   function renderChrome() {
@@ -601,7 +606,7 @@
     const q = query.trim().toLowerCase();
     let focus = null;
     let lin = null;
-    if (selected) {
+    if (selected && !overlayActive) {
       lin = lineage(selected);
       focus = new Set([selected, ...lin.up, ...lin.down]);
     }
@@ -687,6 +692,8 @@
       items.push('-');
       items.push({ label: 'Remove from canvas', hint: n.rel ? 'file is kept' : 'Del', danger: true, run: () => removeBox(n) });
     }
+    const extra = pluginItems('nodeMenu', n);
+    if (extra.length) items.push('-', ...extra);
     items.push('-');
     if (selected === n.id) items.push({ label: 'Clear lineage highlight', hint: 'Esc', run: () => select(null) });
     else items.push({ label: 'Highlight lineage', hint: 'Click', run: () => select(n.id) });
@@ -696,7 +703,10 @@
   function canvasMenu(cx, cy) {
     const w = toWorld(cx, cy);
     const n = view.plannedCount;
+    const extra = pluginItems('canvasMenu');
     return [
+      ...extra,
+      extra.length ? '-' : null,
       { label: 'Sync with files', hint: 'shows every model', run: () => post({ type: 'sync' }) },
       '-',
       { label: 'Create new box', run: () => post({ type: 'createBoxAt', x: snap(w.x - W / 2), y: snap(w.y - H / 2) }) },
@@ -932,7 +942,10 @@
     else if (!mod && key === 'f') fit();
     else if (!mod && (key === '+' || key === '=')) zoomCenter(t.k * 1.2);
     else if (!mod && key === '-') zoomCenter(t.k / 1.2);
-    else if (key === 'escape') select(null);
+    else if (key === 'escape') {
+      // An integration overlay (e.g. a column trace) is cleared first; then the lineage highlight.
+      if (!runHooks('escape').some(Boolean)) select(null);
+    }
     else if ((key === 'delete' || key === 'backspace') && selected) deleteSelected();
     else if (key === 'enter' && selected) {
       const n = nodeById(selected);
@@ -996,11 +1009,85 @@
     return text;
   }
 
+  // ------------------------------------------------------------------ integrations
+  // Integration UIs (media/integrations/<id>.js) are loaded before this file and
+  // queue themselves in window.dbtFlowPlugins as { id, init(api) }. Each gets the
+  // small API below. Every hook call is wrapped, so a broken integration UI is
+  // logged to the console and the canvas carries on without it.
+
+  function runHooks(name, ...args) {
+    const out = [];
+    for (const h of hooks[name]) {
+      try {
+        const r = h.fn(...args);
+        if (r) out.push(r);
+      } catch (err) {
+        console.error(`dbt Flow: the ${h.id} ${name} hook failed`, err);
+      }
+    }
+    return out;
+  }
+
+  const pluginItems = (name, ...args) => runHooks(name, ...args).flat().filter(Boolean);
+
+  /** Zooms out (never in) and centres so that all the given boxes are visible. */
+  function fitTo(ids) {
+    const pts = ids.map((id) => pos.get(id)).filter(Boolean);
+    if (!pts.length) return;
+    const r = viewport.getBoundingClientRect();
+    const minX = Math.min(...pts.map((p) => p.x));
+    const minY = Math.min(...pts.map((p) => p.y));
+    const maxX = Math.max(...pts.map((p) => p.x + W));
+    const maxY = Math.max(...pts.map((p) => p.y + H));
+    const k = Math.max(MIN_K, Math.min(t.k, 1.1, (r.width - 160) / (maxX - minX), (r.height - 140) / (maxY - minY)));
+    t = { k, x: r.width / 2 - ((minX + maxX) / 2) * k, y: r.height / 2 - ((minY + maxY) / 2) * k };
+    applyTransform();
+  }
+
+  function pluginApi(id) {
+    return Object.freeze({
+      on(name, fn) {
+        if (hooks[name] && typeof fn === 'function') hooks[name].push({ id, fn });
+      },
+      /** Messages from an integration UI always carry its prefix: "<id>/<type>". */
+      post: (type, payload = {}) => post({ ...payload, type: `${id}/${type}` }),
+      /** Tells the extension not to replay this integration's last result. */
+      forget: () => post({ type: 'integrationForget', id }),
+      view: () => view,
+      nodeEl: (nodeId) => nodeEls.get(nodeId) || null,
+      edges: () => edgeEls.map(({ e, g, line }) => ({ from: e.from, to: e.to, g, line })),
+      edgeLayer,
+      viewport,
+      isTB,
+      toast,
+      el,
+      svg,
+      centerOn,
+      fitTo,
+      select,
+      setOverlay(active) {
+        overlayActive = !!active;
+        if (view) applyHighlight();
+      },
+    });
+  }
+
+  function loadPlugins() {
+    for (const p of Array.isArray(window.dbtFlowPlugins) ? window.dbtFlowPlugins : []) {
+      try {
+        if (p && typeof p.id === 'string' && typeof p.init === 'function') p.init(pluginApi(p.id));
+      } catch (err) {
+        console.error(`dbt Flow: the ${p && p.id} canvas add-on could not start`, err);
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ messages
 
   let first = true;
   window.addEventListener('message', (e) => {
     const msg = e.data;
+    runHooks('message', msg);
     if (msg.type === 'graph') {
       if (drag && drag.mode === 'node') drag = null;
       if (!msg.view) {
@@ -1036,6 +1123,7 @@
     }
   });
 
+  loadPlugins();
   applyTransform();
   post({ type: 'ready' });
 })();

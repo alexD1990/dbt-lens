@@ -8,6 +8,7 @@ Real `dgt -o json` output from the demo project `~/projects/dbt-lab/tpch_dbt`
 | `dgt_mart_region.json` | `dgt mart -c region -o json` |
 | `dgt_source1_region_down.json` | `dgt source1 -c region -d down -o json` |
 | `dgt_source3_region_down.json` | `dgt source3 -c region -d down -o json` |
+| `dgt_prep2_region_both.json` | `dgt prep2 -c region -d both -o json` |
 
 To make them again (WSL, with the DAGtracer venv active):
 
@@ -17,6 +18,7 @@ dbt build && dbt docs generate
 dgt mart -c region -o json > target/dgt_mart_region.json
 dgt source1 -c region -d down -o json > target/dgt_source1_region_down.json
 dgt source3 -c region -d down -o json > target/dgt_source3_region_down.json
+dgt prep2 -c region -d both -o json > target/dgt_prep2_region_both.json
 cp target/dgt_*.json ~/projects/dbt-lens/test/fixtures/dagtracer/
 ```
 

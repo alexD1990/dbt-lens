@@ -256,3 +256,19 @@ test('host: dispose calls each integration dispose once and survives errors', as
   host.dispose();
   assert.equal(disposed, 1);
 });
+
+test('host: ask and pick go through the services, and are undefined without them', async () => {
+  let api;
+  const reg = (host) => host.register(fakeIntegration({ activate: (a) => ((api = a), { handlers: {} }) }));
+  const withUi = makeHost({ services: { ask: async (o) => `typed:${o.prompt}`, pick: async (o) => o.items[1].label } });
+  reg(withUi.host);
+  await withUi.host.start();
+  assert.equal(await api.ask({ prompt: 'col' }), 'typed:col');
+  assert.equal(await api.pick({ items: [{ label: 'a' }, { label: 'b' }] }), 'b');
+
+  const broken = makeHost({ services: { ask: async () => { throw new Error('no ui'); } } });
+  reg(broken.host);
+  await broken.host.start();
+  assert.equal(await api.ask({ prompt: 'x' }), undefined);
+  assert.equal(await api.pick({ items: [] }), undefined);
+});

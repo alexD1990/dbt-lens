@@ -1,11 +1,32 @@
 'use strict';
 
 const vscode = require('vscode');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { FlowModel } = require('./src/model');
 const { createNodeIO } = require('./src/nodeio');
 const { findProjectRoots } = require('./src/project');
+const { importAliases, boxIdOf } = require('./src/aliases');
+
+const COLUMN_AT_CURSOR = /[A-Za-z_][A-Za-z0-9_$]*/;
+
+/** Integrations that have a canvas add-on in media/integrations/<id>.js (and maybe .css). */
+function integrationUis(extensionPath) {
+  try {
+    const names = require('./src/integrations');
+    return names
+      .filter((n) => /^[a-z][a-z0-9-]*$/.test(n))
+      .map((n) => ({
+        id: n,
+        js: fs.existsSync(path.join(extensionPath, 'media', 'integrations', `${n}.js`)),
+        css: fs.existsSync(path.join(extensionPath, 'media', 'integrations', `${n}.css`)),
+      }))
+      .filter((u) => u.js);
+  } catch {
+    return [];
+  }
+}
 
 const PANEL_TYPE = 'dbtFlow.panel';
 const STARTUP_DELAY_MS = 500;
@@ -23,6 +44,7 @@ class Controller {
     this.refreshTimer = null;
     this.integrations = null; // IntegrationHost, or null if it could not start
     this.integrationChannels = new Map(); // integration id -> output channel
+    this.integrationResults = new Map(); // "<id>/result" -> last result, replayed to a canvas that opens later
   }
 
   // ------------------------------------------------------------ project
@@ -102,18 +124,23 @@ class Controller {
     const nonce = crypto.randomBytes(16).toString('base64');
     const css = webview.asWebviewUri(vscode.Uri.joinPath(media, 'main.css'));
     const js = webview.asWebviewUri(vscode.Uri.joinPath(media, 'main.js'));
+    // Integration add-ons load before main.js, which starts them (see "integrations" in main.js).
+    const uis = integrationUis(this.context.extensionUri.fsPath);
+    const uiUri = (id, ext) => webview.asWebviewUri(vscode.Uri.joinPath(media, 'integrations', `${id}.${ext}`));
+    const uiCss = uis.filter((u) => u.css).map((u) => `\n<link href="${uiUri(u.id, 'css')}" rel="stylesheet">`).join('');
+    const uiJs = uis.map((u) => `<script nonce="${nonce}" src="${uiUri(u.id, 'js')}"></script>\n`).join('');
     webview.html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link href="${css}" rel="stylesheet">
+<link href="${css}" rel="stylesheet">${uiCss}
 <title>dbt Flow</title>
 </head>
 <body data-surface="${kind}">
 <div id="app"></div>
-<script nonce="${nonce}" src="${js}"></script>
+${uiJs}<script nonce="${nonce}" src="${js}"></script>
 </body>
 </html>`;
     const surface = { webview, kind, panel };
@@ -174,9 +201,13 @@ class Controller {
         projectRoot: () => (this.model && this.model.cfg ? this.model.cfg.root : null),
         view: () => (this.model ? this.model.getView() : null),
         post: (msg) => {
+          if (/^[a-z][a-z0-9-]*\/result$/.test(msg.type)) this.integrationResults.set(msg.type, msg);
           for (const s of this.surfaces) s.webview.postMessage(msg);
         },
         setting: (id, key) => vscode.workspace.getConfiguration('dbtFlow').get(`integrations.${id}.${key}`),
+        ask: (o) =>
+          vscode.window.showInputBox({ prompt: o.prompt, placeHolder: o.placeHolder, value: o.value, validateInput: o.validate }),
+        pick: (o) => this.pickWithTyping(o),
         logger: (id, title) => {
           if (typeof vscode.window.createOutputChannel !== 'function') return () => {};
           let ch = this.integrationChannels.get(id);
@@ -215,53 +246,78 @@ class Controller {
   }
 
   /**
-   * Temporary way to run a DAGtracer trace from the command palette until the
-   * canvas has its own menu for it. The result is written to the DAGtracer log.
+   * A quick pick that also accepts a typed value that is not in the list,
+   * e.g. a column the catalog does not know yet. Resolves the label or undefined.
    */
-  async traceColumnPreview() {
+  pickWithTyping({ title, placeHolder, items = [], allowTyped = false }) {
+    return new Promise((resolve) => {
+      const qp = vscode.window.createQuickPick();
+      const base = items.map((i) => ({ label: i.label, description: i.description || '' }));
+      qp.title = title;
+      qp.placeholder = placeHolder;
+      qp.items = base;
+      if (allowTyped) {
+        qp.onDidChangeValue((v) => {
+          const typed = v.trim();
+          const known = base.some((i) => i.label.toLowerCase() === typed.toLowerCase());
+          qp.items = typed && !known && COLUMN_AT_CURSOR.test(typed) ? [{ label: typed, description: 'not in the catalog' }, ...base] : base;
+        });
+      }
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        qp.dispose();
+        resolve(value);
+      };
+      qp.onDidAccept(() => finish(qp.selectedItems[0] ? qp.selectedItems[0].label : undefined));
+      qp.onDidHide(() => finish(undefined));
+      qp.show();
+    });
+  }
+
+  /**
+   * Right-click on a column in a model's SQL → Trace Column. For `prep1.order_id`
+   * the trace starts at the model behind `prep1` (an import CTE or an alias of
+   * ref()); otherwise at the model the file belongs to.
+   */
+  async traceColumnAtCursor() {
+    const ed = vscode.window.activeTextEditor;
+    if (!ed || !this.model) return;
     if (!this.integrations || !this.integrations.isReady('dagtracer')) {
       vscode.window.showWarningMessage('dbt Flow: DAGtracer is not ready. Run "dbt Flow: Check Integrations" to see why.');
       return;
     }
-    if (!this.model) return;
-    const mode = await vscode.window.showQuickPick(
-      [
-        { label: '$(question) Why is a column missing here?', description: 'upstream from one box', direction: 'up' },
-        { label: '$(arrow-down) Trace a column downstream', description: 'from one or more boxes', direction: 'down' },
-      ],
-      { placeHolder: 'DAGtracer' }
-    );
-    if (!mode) return;
-    const ed = vscode.window.activeTextEditor;
-    const activePath = ed ? ed.document.uri.fsPath : null;
-    const nodes = this.model
-      .getView()
-      .nodes.filter((n) => ['model', 'seed', 'snapshot', 'source'].includes(n.kind))
-      .sort((a, b) => a.id.localeCompare(b.id));
-    const activeId = [...this.model.nodes.values()].find((n) => n.abs && n.abs === activePath)?.id;
-    const items = nodes.map((n) => ({
-      label: n.id,
-      description: n.id === activeId ? 'open in the editor' : n.folder || n.kind,
-      picked: n.id === activeId,
-      id: n.id,
-    }));
-    if (activeId) items.sort((a, b) => (b.id === activeId) - (a.id === activeId));
-    const many = mode.direction === 'down';
-    const pick = await vscode.window.showQuickPick(items, {
-      placeHolder: many ? 'Start from which boxes? (pick one or more)' : 'Which box is the column missing from?',
-      canPickMany: many,
-    });
-    const starts = (Array.isArray(pick) ? pick : pick ? [pick] : []).map((p) => p.id);
-    if (!starts.length) return;
-    const column = await vscode.window.showInputBox({
-      prompt: 'Column to trace',
-      placeHolder: 'e.g. region',
-      validateInput: (v) => (/^[A-Za-z_][A-Za-z0-9_$]*$/.test(v.trim()) ? null : 'Use letters, numbers and _.'),
-    });
-    if (!column) return;
-    const ch = this.integrationChannels.get('dagtracer');
-    if (ch) ch.show(true);
-    await this.integrations.handle({ type: 'dagtracer/trace', starts, column: column.trim(), direction: mode.direction });
+    const doc = ed.document;
+    const range = doc.getWordRangeAtPosition(ed.selection.active, COLUMN_AT_CURSOR);
+    if (!range) {
+      vscode.window.showInformationMessage('dbt Flow: put the cursor on a column name, then Trace Column.');
+      return;
+    }
+    const line = doc.lineAt(range.start.line).text;
+    let column = doc.getText(range);
+    let qualifier = null;
+    const after = /^\.([A-Za-z_][A-Za-z0-9_$]*)/.exec(line.slice(range.end.character));
+    const before = /([A-Za-z_][A-Za-z0-9_$]*)\.$/.exec(line.slice(0, range.start.character));
+    if (after) {
+      // The cursor is on "prep1" in "prep1.order_id": trace order_id.
+      qualifier = column;
+      column = after[1];
+    } else if (before) {
+      qualifier = before[1];
+    }
+    const own = [...this.model.nodes.values()].find((n) => n.abs === doc.uri.fsPath && n.kind === 'model');
+    if (!own) {
+      vscode.window.showInformationMessage('dbt Flow: this file is not a model in the open dbt project.');
+      return;
+    }
+    let start = own.id;
+    if (qualifier) {
+      const dep = importAliases(doc.getText()).get(qualifier.toLowerCase());
+      if (dep && this.model.nodes.has(boxIdOf(dep))) start = boxIdOf(dep);
+    }
+    this.openPanel({ preserveFocus: true });
+    await this.integrations.handle({ type: 'dagtracer/traceBox', id: start, column });
   }
 
   // ------------------------------------------------------------ messages
@@ -281,6 +337,12 @@ class Controller {
       if (!this.model) this.loadProject();
       this.broadcast();
       if (this.integrations) this.integrations.announce();
+      // A canvas that opens after a trace finished still shows it.
+      for (const r of this.integrationResults.values()) surface.webview.postMessage(r);
+      return;
+    }
+    if (msg.type === 'integrationForget') {
+      this.integrationResults.delete(`${msg.id}/result`);
       return;
     }
     // "<integration>/<action>" goes to the integration host, which never throws.
@@ -564,7 +626,7 @@ function activate(context) {
     vscode.commands.registerCommand('dbtFlow.createAll', () => ctl.handle({ type: 'createAll' })),
     vscode.commands.registerCommand('dbtFlow.selectProject', () => ctl.selectProject()),
     vscode.commands.registerCommand('dbtFlow.checkIntegrations', () => ctl.checkIntegrations()),
-    vscode.commands.registerCommand('dbtFlow.traceColumn', () => ctl.traceColumnPreview()),
+    vscode.commands.registerCommand('dbtFlow.traceColumnAtCursor', () => ctl.traceColumnAtCursor()),
     { dispose: () => ctl.integrations && ctl.integrations.dispose() },
     vscode.window.onDidChangeActiveTextEditor(() => ctl.postActiveFile()),
     vscode.workspace.onDidRenameFiles((e) =>

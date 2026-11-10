@@ -75,12 +75,19 @@
         "category": "dbt Flow"
       },
       {
-        "command": "dbtFlow.traceColumn",
-        "title": "Trace Column (preview)",
+        "command": "dbtFlow.traceColumnAtCursor",
+        "title": "Trace Column",
         "category": "dbt Flow"
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "dbtFlow.traceColumnAtCursor",
+          "when": "resourceExtname == .sql",
+          "group": "navigation@100"
+        }
+      ],
       "editor/title": [
         {
           "command": "dbtFlow.openPanel",
@@ -132,6 +139,6 @@
     }
   },
   "scripts": {
-    "test": "node --test test/model.test.js test/extension.test.js test/host.test.js test/dagtracer.test.js test/architecture.test.js"
+    "test": "node --test test/model.test.js test/extension.test.js test/aliases.test.js test/host.test.js test/dagtracer.test.js test/dagtracer-ui.test.js test/architecture.test.js"
   }
 }

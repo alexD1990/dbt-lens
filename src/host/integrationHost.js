@@ -40,6 +40,8 @@ class IntegrationHost {
    *   post(msg)                send a message to every canvas
    *   setting(id, key, dflt)   value of dbtFlow.integrations.<id>.<key>
    *   logger(id, title)        returns (line) => void, e.g. a VS Code output channel
+   *   ask(opts)                optional: text input { prompt, placeHolder, value, validate } → string | undefined
+   *   pick(opts)               optional: pick from { title, placeHolder, items: [{ label, description }], allowTyped } → label | undefined
    *   run                      optional replacement for runTool (tests)
    */
   constructor(services) {
@@ -210,7 +212,20 @@ class IntegrationHost {
       setting: (key, dflt) => this.setting(e.id, key, dflt),
       log: e.log,
       run: (command, args, opts = {}) => this.run(command, args, { ...opts, log: e.log }),
+      ask: (opts) => this.ui('ask', opts),
+      pick: (opts) => this.ui('pick', opts),
     });
+  }
+
+  /** Asks the user through a service; resolves undefined when it is missing, fails or is cancelled. */
+  async ui(kind, opts) {
+    const fn = this.services[kind];
+    if (typeof fn !== 'function') return undefined;
+    try {
+      return await fn(opts);
+    } catch {
+      return undefined;
+    }
   }
 
   setting(id, key, dflt) {
