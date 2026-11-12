@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { importAliases, boxIdOf } = require('../src/aliases');
 
-test('import CTEs written by dbt Flow and by hand', () => {
+test('import CTEs written by dbt Lens and by hand', () => {
   const sql = `
 with
 

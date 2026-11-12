@@ -287,7 +287,7 @@ class Studio {
     }
     // Type into the prompt that is waiting at the bottom.
     const line = await p.evaluate(() => { const all = document.querySelectorAll('#term > div'); const el = all[all.length - 1]; el.id = 'cur-' + Date.now(); return el.id; });
-    // dbt Flow sends the whole line at once, as if pasted.
+    // dbt Lens sends the whole line at once, as if pasted.
     await sleep(250);
     await p.evaluate(([l, t]) => { const el = document.getElementById(l); window.studio.termType(el, t); window.studio.termDone(el); }, [line, plan.line]);
     await sleep(500);

@@ -1,10 +1,10 @@
-# dbt Flow
+# dbt Lens
 
 **Your dbt project as a living flowchart, right next to your SQL.**
 
-dbt Flow is a VS Code extension that draws every model, seed and source in your dbt project on a canvas. Click around to see lineage, sketch new models as boxes that become `.sql` files, run dbt on any box, and find out exactly where a column disappears.
+dbt Lens is a VS Code extension that draws every model, seed and source in your dbt project on a canvas. Click around to see lineage, sketch new models as boxes that become `.sql` files, run dbt on any box, and find out exactly where a column disappears.
 
-![dbt Flow next to a SQL file in VS Code](images/hero.png)
+![dbt Lens next to a SQL file in VS Code](images/hero.png)
 
 The canvas needs no dbt run: it reads `ref()` and `source()` straight from your files and updates every time you save.
 
@@ -18,7 +18,7 @@ Click any box to light up everything it depends on and everything that depends o
 
 ## Sketch a model, get the file
 
-Right-click the canvas to add a box, drag from one box to another to connect them, and choose **Create file**. dbt Flow writes the `.sql` file with one import CTE per upstream model, ready for you to fill in.
+Right-click the canvas to add a box, drag from one box to another to connect them, and choose **Create file**. dbt Lens writes the `.sql` file with one import CTE per upstream model, ready for you to fill in.
 
 ![Sketching a new model and creating its file](images/sketch.gif)
 
@@ -30,11 +30,11 @@ Right-click a box and choose **dbt build**, **run**, **test** or **compile**: it
 
 ![Running dbt build on a box from its menu](images/run.gif)
 
-Commands go to a normal VS Code terminal called *dbt Flow*, so you see dbt's own output and can stop it with Ctrl+C. Unsaved files are saved first.
+Commands go to a normal VS Code terminal called *dbt Lens*, so you see dbt's own output and can stop it with Ctrl+C. Unsaved files are saved first.
 
 ## Find where a column disappears
 
-Right-click a box, choose **Trace column…** and pick a column. dbt Flow shows which models still have it, and marks with ✕ the exact connection where it is dropped.
+Right-click a box, choose **Trace column…** and pick a column. dbt Lens shows which models still have it, and marks with ✕ the exact connection where it is dropped.
 
 ![Tracing where the region column stops](images/trace.gif)
 
@@ -42,7 +42,7 @@ Column tracing uses [DAGtracer](#column-tracing-with-dagtracer) (`dgt`), an opti
 
 ## And the things you would expect
 
-- **Rename without breaking refs.** Rename a model on the canvas or in Explorer, and dbt Flow offers to update every `ref()` to it.
+- **Rename without breaking refs.** Rename a model on the canvas or in Explorer, and dbt Lens offers to update every `ref()` to it.
 - **Nothing is deleted by accident.** Removing a box only takes it off the canvas; your files stay. *Show removed boxes* brings them back.
 - **Undo everything.** Ctrl+Z undoes moves, new boxes, connections and file edits. If you changed a file by hand since, it stops and tells you instead of overwriting your work.
 - **Broken refs stand out.** A `ref()` to a model that does not exist shows as a red box, with quick fixes on its menu.
@@ -53,17 +53,17 @@ Column tracing uses [DAGtracer](#column-tracing-with-dagtracer) (`dgt`), an opti
 
 ## Getting started
 
-dbt Flow is not on the VS Code Marketplace yet. To try it:
+dbt Lens is not on the VS Code Marketplace yet. To try it:
 
 1. Clone this repository and open it in VS Code.
-2. Press **F5** (or *Run → Start Debugging*). A new VS Code window opens with dbt Flow loaded.
+2. Press **F5** (or *Run → Start Debugging*). A new VS Code window opens with dbt Lens loaded.
 3. In that window, open a folder that contains a `dbt_project.yml`. The canvas opens by itself to the right of your code.
 
-If you close the canvas, bring it back with the **dbt Flow** button in the status bar, the canvas button in the title bar of any `.sql` file, or *dbt Flow: Open Canvas* in the command palette.
+If you close the canvas, bring it back with the **dbt Lens** button in the status bar, the canvas button in the title bar of any `.sql` file, or *dbt Lens: Open Canvas* in the command palette.
 
 ### Running dbt
 
-dbt Flow types the command into a terminal in your project folder, so it uses whatever `dbt` that terminal finds. If dbt lives in a virtual environment, or you use a different target, tell dbt Flow in your settings:
+dbt Lens types the command into a terminal in your project folder, so it uses whatever `dbt` that terminal finds. If dbt lives in a virtual environment, or you use a different target, tell dbt Lens in your settings:
 
 ```jsonc
 {
@@ -75,7 +75,7 @@ dbt Flow types the command into a terminal in your project folder, so it uses wh
 
 ### Column tracing with DAGtracer
 
-*Trace column…* appears when [DAGtracer](https://github.com/alexD1990/DAGtracer)'s `dgt` command is installed. It reads dbt's `target/manifest.json` and `target/catalog.json`, so run **▶ → dbt docs generate** first. If `dgt` is not on your `PATH`, set `dbtFlow.integrations.dagtracer.executable` to its full path. *dbt Flow: Check Integrations* shows whether it was found.
+*Trace column…* appears when [DAGtracer](https://github.com/alexD1990/DAGtracer)'s `dgt` command is installed. It reads dbt's `target/manifest.json` and `target/catalog.json`, so run **▶ → dbt docs generate** first. If `dgt` is not on your `PATH`, set `dbtFlow.integrations.dagtracer.executable` to its full path. *dbt Lens: Check Integrations* shows whether it was found.
 
 ---
 
@@ -110,7 +110,7 @@ dbt Flow types the command into a terminal in your project folder, so it uses wh
 | `dbtFlow.openCreatedFile` | `true` | Open the new file after *Create file*. |
 | `dbtFlow.dbt.executable` | `dbt` | The dbt command, or its full path. |
 | `dbtFlow.dbt.target` | empty | Added as `--target` to every dbt command. Empty uses the profile's default. |
-| `dbtFlow.dbt.envFile` | empty | A file of `KEY=VALUE` or `export` lines loaded once into the dbt Flow terminal. |
+| `dbtFlow.dbt.envFile` | empty | A file of `KEY=VALUE` or `export` lines loaded once into the dbt Lens terminal. |
 | `dbtFlow.integrations.dagtracer.enabled` | `true` | Offer column tracing when `dgt` is installed. |
 | `dbtFlow.integrations.dagtracer.executable` | `dgt` | The `dgt` command, or its full path. |
 | `dbtFlow.integrations.dagtracer.timeoutSeconds` | `120` | Stop a trace that takes longer than this. |
@@ -150,7 +150,7 @@ Box positions, boxes without files, their connections, the flow direction and th
 <details>
 <summary><b>How the project is read</b></summary>
 
-dbt Flow finds `dbt_project.yml` (up to three folders deep), reads `model-paths`, `seed-paths` and `snapshot-paths`, and draws every model from its `ref()` and `source()` calls. Seeds, snapshots and Python models are included. It does not run dbt or read `target/` to draw the canvas, so it works on a fresh clone and on models that do not compile yet. Use **Sync with files** (the top button in the tool bar) to read everything again and lay it out from scratch; Ctrl+Z puts your old layout back.
+dbt Lens finds `dbt_project.yml` (up to three folders deep), reads `model-paths`, `seed-paths` and `snapshot-paths`, and draws every model from its `ref()` and `source()` calls. Seeds, snapshots and Python models are included. It does not run dbt or read `target/` to draw the canvas, so it works on a fresh clone and on models that do not compile yet. Use **Sync with files** (the top button in the tool bar) to read everything again and lay it out from scratch; Ctrl+Z puts your old layout back.
 
 </details>
 

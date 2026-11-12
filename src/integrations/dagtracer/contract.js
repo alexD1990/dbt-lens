@@ -41,7 +41,7 @@ function parseDocument(doc) {
   const m = /^(\d+)\.(\d+)$/.exec(version);
   if (!m) return fail('bad_output', 'dgt output has no schema_version.');
   if (Number(m[1]) !== SUPPORTED_MAJOR) {
-    return fail('incompatible', `dgt writes schema ${version}; dbt Flow understands ${SUPPORTED_MAJOR}.x.`);
+    return fail('incompatible', `dgt writes schema ${version}; dbt Lens understands ${SUPPORTED_MAJOR}.x.`);
   }
   if (doc.status === 'error') {
     return fail('tool_error', (doc.error && doc.error.message) || 'dgt reported an error without a message.');

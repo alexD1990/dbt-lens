@@ -1,4 +1,4 @@
-// dbt Flow canvas. Runs inside the VS Code webview; every change is sent to the extension.
+// dbt Lens canvas. Runs inside the VS Code webview; every change is sent to the extension.
 (function () {
   'use strict';
 
@@ -397,7 +397,7 @@
 
   function renderChrome() {
     const p = view.project;
-    $('project').textContent = p ? p.name : 'dbt Flow';
+    $('project').textContent = p ? p.name : 'dbt Lens';
 
     const undo = $('btn-undo');
     const redo = $('btn-redo');
@@ -1068,7 +1068,7 @@
         const r = h.fn(...args);
         if (r) out.push(r);
       } catch (err) {
-        console.error(`dbt Flow: the ${h.id} ${name} hook failed`, err);
+        console.error(`dbt Lens: the ${h.id} ${name} hook failed`, err);
       }
     }
     return out;
@@ -1123,7 +1123,7 @@
       try {
         if (p && typeof p.id === 'string' && typeof p.init === 'function') p.init(pluginApi(p.id));
       } catch (err) {
-        console.error(`dbt Flow: the ${p && p.id} canvas add-on could not start`, err);
+        console.error(`dbt Lens: the ${p && p.id} canvas add-on could not start`, err);
       }
     }
   }

@@ -1,6 +1,6 @@
 {
-  "name": "dbt-flow",
-  "displayName": "dbt Flow",
+  "name": "dbt-lens",
+  "displayName": "dbt Lens",
   "description": "See how your dbt models connect, and sketch new ones as boxes that become .sql files.",
   "version": "0.2.0",
   "publisher": "local",
@@ -31,7 +31,7 @@
       {
         "command": "dbtFlow.openPanel",
         "title": "Open Canvas",
-        "category": "dbt Flow",
+        "category": "dbt Lens",
         "icon": {
           "dark": "media/icon.svg",
           "light": "media/icon-light.svg"
@@ -40,49 +40,49 @@
       {
         "command": "dbtFlow.refresh",
         "title": "Reload Project",
-        "category": "dbt Flow",
+        "category": "dbt Lens",
         "icon": "$(refresh)"
       },
       {
         "command": "dbtFlow.tidy",
         "title": "Tidy Up Layout",
-        "category": "dbt Flow",
+        "category": "dbt Lens",
         "icon": "$(type-hierarchy-sub)"
       },
       {
         "command": "dbtFlow.createAll",
         "title": "Create All Files",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       },
       {
         "command": "dbtFlow.undo",
         "title": "Undo Last Canvas Change",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       },
       {
         "command": "dbtFlow.redo",
         "title": "Redo Canvas Change",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       },
       {
         "command": "dbtFlow.selectProject",
         "title": "Choose dbt Project…",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       },
       {
         "command": "dbtFlow.checkIntegrations",
         "title": "Check Integrations",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       },
       {
         "command": "dbtFlow.traceColumnAtCursor",
         "title": "Trace Column",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       },
       {
         "command": "dbtFlow.runDbt",
         "title": "Run dbt Command…",
-        "category": "dbt Flow"
+        "category": "dbt Lens"
       }
     ],
     "menus": {
@@ -102,7 +102,7 @@
       ]
     },
     "configuration": {
-      "title": "dbt Flow",
+      "title": "dbt Lens",
       "properties": {
         "dbtFlow.openOnStartup": {
           "type": "boolean",
@@ -127,7 +127,7 @@
         "dbtFlow.dbt.executable": {
           "type": "string",
           "default": "dbt",
-          "description": "The dbt command typed into the dbt Flow terminal, or its full path, e.g. ~/.venvs/dbt-databricks/bin/dbt."
+          "description": "The dbt command typed into the dbt Lens terminal, or its full path, e.g. ~/.venvs/dbt-databricks/bin/dbt."
         },
         "dbtFlow.dbt.target": {
           "type": "string",
@@ -137,7 +137,7 @@
         "dbtFlow.dbt.envFile": {
           "type": "string",
           "default": "",
-          "description": "A file of KEY=VALUE or export lines (e.g. ~/.databricks.env) loaded once into the dbt Flow terminal, like running source on it yourself."
+          "description": "A file of KEY=VALUE or export lines (e.g. ~/.databricks.env) loaded once into the dbt Lens terminal, like running source on it yourself."
         },
         "dbtFlow.integrations.dagtracer.enabled": {
           "type": "boolean",

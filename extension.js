@@ -46,7 +46,7 @@ class Controller {
     this.integrations = null; // IntegrationHost, or null if it could not start
     this.integrationChannels = new Map(); // integration id -> output channel
     this.integrationResults = new Map(); // "<id>/result" -> last result, replayed to a canvas that opens later
-    this.dbtTerminal = null; // the "dbt Flow" terminal dbt commands are typed into
+    this.dbtTerminal = null; // the "dbt Lens" terminal dbt commands are typed into
     this.dbtTerminalRoot = null; // the folder that terminal is in
   }
 
@@ -73,19 +73,19 @@ class Controller {
     }
     this.model = new FlowModel(this.io);
     this.model.open(root);
-    if (this.model.loadError) vscode.window.showWarningMessage(`dbt Flow: ${this.model.loadError}`);
+    if (this.model.loadError) vscode.window.showWarningMessage(`dbt Lens: ${this.model.loadError}`);
   }
 
   async selectProject() {
     const folders = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
     const roots = findProjectRoots(folders, this.io);
     if (!roots.length) {
-      vscode.window.showInformationMessage('dbt Flow found no dbt_project.yml in this workspace.');
+      vscode.window.showInformationMessage('dbt Lens found no dbt_project.yml in this workspace.');
       return;
     }
     const pick = await vscode.window.showQuickPick(
       roots.map((r) => ({ label: path.basename(r), description: r, root: r })),
-      { placeHolder: 'Which dbt project should dbt Flow show?' }
+      { placeHolder: 'Which dbt project should dbt Lens show?' }
     );
     if (!pick) return;
     await this.context.workspaceState.update('dbtFlow.root', pick.root);
@@ -139,7 +139,7 @@ class Controller {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link href="${css}" rel="stylesheet">${uiCss}
-<title>dbt Flow</title>
+<title>dbt Lens</title>
 </head>
 <body data-surface="${kind}">
 <div id="app"></div>
@@ -149,7 +149,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     const surface = { webview, kind, panel };
     this.surfaces.add(surface);
     const sub = webview.onDidReceiveMessage((msg) =>
-      this.handle(msg, surface).catch((e) => vscode.window.showErrorMessage(`dbt Flow: ${e.message}`))
+      this.handle(msg, surface).catch((e) => vscode.window.showErrorMessage(`dbt Lens: ${e.message}`))
     );
     return {
       dispose: () => {
@@ -174,7 +174,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     const media = vscode.Uri.joinPath(this.context.extensionUri, 'media');
     const panel = vscode.window.createWebviewPanel(
       PANEL_TYPE,
-      'dbt Flow',
+      'dbt Lens',
       { viewColumn: column, preserveFocus },
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [media] }
     );
@@ -215,7 +215,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
           if (typeof vscode.window.createOutputChannel !== 'function') return () => {};
           let ch = this.integrationChannels.get(id);
           if (!ch) {
-            ch = vscode.window.createOutputChannel(`dbt Flow: ${title}`);
+            ch = vscode.window.createOutputChannel(`dbt Lens: ${title}`);
             this.integrationChannels.set(id, ch);
             this.context.subscriptions.push(ch);
           }
@@ -225,14 +225,14 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       this.integrations.start().catch(() => {});
     } catch (e) {
       this.integrations = null;
-      console.error(`dbt Flow: integrations are off (${e.message})`);
+      console.error(`dbt Lens: integrations are off (${e.message})`);
     }
   }
 
   /** Re-checks every integration and lists them; picking one opens its log. */
   async checkIntegrations() {
     if (!this.integrations) {
-      vscode.window.showWarningMessage('dbt Flow: integrations could not be started. See Help → Toggle Developer Tools → Console.');
+      vscode.window.showWarningMessage('dbt Lens: integrations could not be started. See Help → Toggle Developer Tools → Console.');
       return;
     }
     const list = await this.integrations.recheck();
@@ -243,7 +243,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       detail: s.reason || undefined,
       id: s.id,
     }));
-    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'dbt Flow integrations. Pick one to open its log.' });
+    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'dbt Lens integrations. Pick one to open its log.' });
     const ch = pick && this.integrationChannels.get(pick.id);
     if (ch) ch.show(true);
   }
@@ -288,13 +288,13 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     const ed = vscode.window.activeTextEditor;
     if (!ed || !this.model) return;
     if (!this.integrations || !this.integrations.isReady('dagtracer')) {
-      vscode.window.showWarningMessage('dbt Flow: DAGtracer is not ready. Run "dbt Flow: Check Integrations" to see why.');
+      vscode.window.showWarningMessage('dbt Lens: DAGtracer is not ready. Run "dbt Lens: Check Integrations" to see why.');
       return;
     }
     const doc = ed.document;
     const range = doc.getWordRangeAtPosition(ed.selection.active, COLUMN_AT_CURSOR);
     if (!range) {
-      vscode.window.showInformationMessage('dbt Flow: put the cursor on a column name, then Trace Column.');
+      vscode.window.showInformationMessage('dbt Lens: put the cursor on a column name, then Trace Column.');
       return;
     }
     const line = doc.lineAt(range.start.line).text;
@@ -311,7 +311,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     }
     const own = [...this.model.nodes.values()].find((n) => n.abs === doc.uri.fsPath && n.kind === 'model');
     if (!own) {
-      vscode.window.showInformationMessage('dbt Flow: this file is not a model in the open dbt project.');
+      vscode.window.showInformationMessage('dbt Lens: this file is not a model in the open dbt project.');
       return;
     }
     let start = own.id;
@@ -330,7 +330,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     if (result.ok === false && result.message && !result.quiet) {
       vscode.window.showWarningMessage(result.message);
     } else if (result.ok !== false && successMessage) {
-      vscode.window.setStatusBarMessage(`dbt Flow: ${successMessage}`, 4000);
+      vscode.window.setStatusBarMessage(`dbt Lens: ${successMessage}`, 4000);
     }
     this.broadcast();
   }
@@ -462,7 +462,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
   // ------------------------------------------------------------ dbt
 
   /**
-   * Types a dbt command into the "dbt Flow" terminal, the same line you would type
+   * Types a dbt command into the "dbt Lens" terminal, the same line you would type
    * yourself. With a box id it runs that box and everything upstream of it
    * (`--select +mart`); without, the whole project. Unsaved files are saved first,
    * so dbt runs what the editor shows. See src/dbtrun.js.
@@ -480,7 +480,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       target: config.get('dbt.target'),
     });
     if (!plan.ok) {
-      vscode.window.showWarningMessage(`dbt Flow: ${plan.message}`);
+      vscode.window.showWarningMessage(`dbt Lens: ${plan.message}`);
       return;
     }
     if (vscode.workspace.saveAll) await vscode.workspace.saveAll(false);
@@ -489,7 +489,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     term.sendText(plan.line);
   }
 
-  /** The "dbt Flow" terminal in the project folder, made (and given the env file) once. */
+  /** The "dbt Lens" terminal in the project folder, made (and given the env file) once. */
   dbtTerminalFor(root, envFile) {
     let term = this.dbtTerminal;
     if (term && term.exitStatus === undefined) {
@@ -499,7 +499,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       }
       return term;
     }
-    term = vscode.window.createTerminal({ name: 'dbt Flow', cwd: root });
+    term = vscode.window.createTerminal({ name: 'dbt Lens', cwd: root });
     const env = dbtrun.envFileLine(envFile);
     if (env) term.sendText(env);
     this.dbtTerminal = term;
@@ -527,7 +527,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       const always = 'Add, and stop asking';
       const choice = await vscode.window.showInformationMessage(
         `Add ${expr} to ${plan.rel}?`,
-        { modal: true, detail: 'It goes in as an import CTE at the top of the file. Undo in dbt Flow takes it out again.' },
+        { modal: true, detail: 'It goes in as an import CTE at the top of the file. Undo in dbt Lens takes it out again.' },
         'Add ref',
         always
       );
@@ -544,7 +544,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
     const list = files.slice(0, 8).join('\n') + (files.length > 8 ? `\n…and ${files.length - 8} more` : '');
     const choice = await vscode.window.showInformationMessage(
       question,
-      { modal: true, detail: `${list}\n\nUndo in dbt Flow changes them back.` },
+      { modal: true, detail: `${list}\n\nUndo in dbt Lens changes them back.` },
       'Update refs'
     );
     return !!choice;
@@ -581,7 +581,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
   /**
    * Red box (a ref to a model with no file): remove the import CTEs that ref()
    * it, after asking. Files that use the model further than the import are
-   * not touched; dbt Flow offers to open them instead.
+   * not touched; dbt Lens offers to open them instead.
    */
   async removeRefs(name, { confirmed = false } = {}) {
     const m = this.model;
@@ -625,7 +625,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       const who = users.length === 1 ? users[0] : `${users.length} files`;
       const choice = await vscode.window.showInformationMessage(
         `${name} was deleted, but ${who} still ${users.length === 1 ? 'uses' : 'use'} ref('${name}'). Remove the ref?`,
-        { modal: true, detail: `${users.slice(0, 8).join('\n')}\n\nOnly the import CTE at the top is removed. Undo in dbt Flow puts it back.` },
+        { modal: true, detail: `${users.slice(0, 8).join('\n')}\n\nOnly the import CTE at the top is removed. Undo in dbt Lens puts it back.` },
         'Remove ref'
       );
       if (choice) await this.removeRefs(name, { confirmed: true });
@@ -664,7 +664,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
   }
 
   /**
-   * Opens a file to the left of the canvas, so dbt Flow always stays on the right.
+   * Opens a file to the left of the canvas, so dbt Lens always stays on the right.
    * If the canvas is the only editor group (all files closed), the file opens in a
    * new group that is then moved to the left of the canvas.
    */
@@ -726,8 +726,8 @@ function activate(context) {
 
   // A status bar button to bring the canvas back after it has been closed.
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
-  status.text = '$(type-hierarchy-sub) dbt Flow';
-  status.tooltip = 'Open the dbt Flow canvas';
+  status.text = '$(type-hierarchy-sub) dbt Lens';
+  status.tooltip = 'Open the dbt Lens canvas';
   status.command = 'dbtFlow.openPanel';
   status.show();
 
@@ -754,11 +754,11 @@ function activate(context) {
       : { dispose() {} },
     vscode.window.onDidChangeActiveTextEditor(() => ctl.postActiveFile()),
     vscode.workspace.onDidRenameFiles((e) =>
-      ctl.onFilesRenamed(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))
+      ctl.onFilesRenamed(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Lens: ${err.message}`))
     ),
     vscode.workspace.onDidDeleteFiles
       ? vscode.workspace.onDidDeleteFiles((e) =>
-          ctl.onFilesDeleted(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))
+          ctl.onFilesDeleted(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Lens: ${err.message}`))
         )
       : { dispose() {} },
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
