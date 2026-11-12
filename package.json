@@ -78,6 +78,11 @@
         "command": "dbtFlow.traceColumnAtCursor",
         "title": "Trace Column",
         "category": "dbt Flow"
+      },
+      {
+        "command": "dbtFlow.runDbt",
+        "title": "Run dbt Command…",
+        "category": "dbt Flow"
       }
     ],
     "menus": {
@@ -119,6 +124,21 @@
           "default": true,
           "description": "Open the new .sql file after Create file."
         },
+        "dbtFlow.dbt.executable": {
+          "type": "string",
+          "default": "dbt",
+          "description": "The dbt command typed into the dbt Flow terminal, or its full path, e.g. ~/.venvs/dbt-databricks/bin/dbt."
+        },
+        "dbtFlow.dbt.target": {
+          "type": "string",
+          "default": "",
+          "description": "Added as --target to every dbt command. Leave empty for the profile's default target."
+        },
+        "dbtFlow.dbt.envFile": {
+          "type": "string",
+          "default": "",
+          "description": "A file of KEY=VALUE or export lines (e.g. ~/.databricks.env) loaded once into the dbt Flow terminal, like running source on it yourself."
+        },
         "dbtFlow.integrations.dagtracer.enabled": {
           "type": "boolean",
           "default": true,
@@ -139,6 +159,6 @@
     }
   },
   "scripts": {
-    "test": "node --test test/model.test.js test/extension.test.js test/removeref.test.js test/aliases.test.js test/host.test.js test/dagtracer.test.js test/dagtracer-ui.test.js test/architecture.test.js"
+    "test": "node --test test/model.test.js test/extension.test.js test/removeref.test.js test/dbtrun.test.js test/aliases.test.js test/host.test.js test/dagtracer.test.js test/dagtracer-ui.test.js test/architecture.test.js"
   }
 }

@@ -8,6 +8,7 @@ const { FlowModel } = require('./src/model');
 const { createNodeIO } = require('./src/nodeio');
 const { findProjectRoots } = require('./src/project');
 const { importAliases, boxIdOf } = require('./src/aliases');
+const dbtrun = require('./src/dbtrun');
 
 const COLUMN_AT_CURSOR = /[A-Za-z_][A-Za-z0-9_$]*/;
 
@@ -45,6 +46,8 @@ class Controller {
     this.integrations = null; // IntegrationHost, or null if it could not start
     this.integrationChannels = new Map(); // integration id -> output channel
     this.integrationResults = new Map(); // "<id>/result" -> last result, replayed to a canvas that opens later
+    this.dbtTerminal = null; // the "dbt Flow" terminal dbt commands are typed into
+    this.dbtTerminalRoot = null; // the folder that terminal is in
   }
 
   // ------------------------------------------------------------ project
@@ -337,6 +340,7 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       if (!this.model) this.loadProject();
       this.broadcast();
       if (this.integrations) this.integrations.announce();
+      surface.webview.postMessage({ type: 'dbtCommands', project: dbtrun.PROJECT_COMMANDS, box: dbtrun.BOX_COMMANDS });
       // A canvas that opens after a trace finished still shows it.
       for (const r of this.integrationResults.values()) surface.webview.postMessage(r);
       return;
@@ -450,7 +454,65 @@ ${uiJs}<script nonce="${nonce}" src="${js}"></script>
       }
       case 'selectProject':
         return this.selectProject();
+      case 'dbt':
+        return this.runDbt(msg.command, msg.id || null);
     }
+  }
+
+  // ------------------------------------------------------------ dbt
+
+  /**
+   * Types a dbt command into the "dbt Flow" terminal, the same line you would type
+   * yourself. With a box id it runs that box and everything upstream of it
+   * (`--select +mart`); without, the whole project. Unsaved files are saved first,
+   * so dbt runs what the editor shows. See src/dbtrun.js.
+   */
+  async runDbt(command, id) {
+    const m = this.model;
+    if (!m || !m.cfg) return;
+    const node = id ? m.nodes.get(id) : null;
+    if (id && !node) return;
+    const config = vscode.workspace.getConfiguration('dbtFlow');
+    const plan = dbtrun.planDbt({
+      command,
+      node: node && { id: node.id, name: node.name, kind: node.kind },
+      executable: config.get('dbt.executable'),
+      target: config.get('dbt.target'),
+    });
+    if (!plan.ok) {
+      vscode.window.showWarningMessage(`dbt Flow: ${plan.message}`);
+      return;
+    }
+    if (vscode.workspace.saveAll) await vscode.workspace.saveAll(false);
+    const term = this.dbtTerminalFor(m.cfg.root, config.get('dbt.envFile'));
+    term.show(true);
+    term.sendText(plan.line);
+  }
+
+  /** The "dbt Flow" terminal in the project folder, made (and given the env file) once. */
+  dbtTerminalFor(root, envFile) {
+    let term = this.dbtTerminal;
+    if (term && term.exitStatus === undefined) {
+      if (this.dbtTerminalRoot !== root) {
+        term.sendText(`cd ${dbtrun.shellWord(root)}`);
+        this.dbtTerminalRoot = root;
+      }
+      return term;
+    }
+    term = vscode.window.createTerminal({ name: 'dbt Flow', cwd: root });
+    const env = dbtrun.envFileLine(envFile);
+    if (env) term.sendText(env);
+    this.dbtTerminal = term;
+    this.dbtTerminalRoot = root;
+    return term;
+  }
+
+  /** Command palette: pick a dbt command for the whole project. */
+  async pickDbtCommand() {
+    if (!this.model) return;
+    const items = dbtrun.PROJECT_COMMANDS.filter((c) => c !== '-').map((c) => ({ label: `dbt ${c.command}`, description: c.hint, command: c.command }));
+    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Run a dbt command on the whole project' });
+    if (pick) await this.runDbt(pick.command, null);
   }
 
   async connect(from, to) {
@@ -683,7 +745,13 @@ function activate(context) {
     vscode.commands.registerCommand('dbtFlow.selectProject', () => ctl.selectProject()),
     vscode.commands.registerCommand('dbtFlow.checkIntegrations', () => ctl.checkIntegrations()),
     vscode.commands.registerCommand('dbtFlow.traceColumnAtCursor', () => ctl.traceColumnAtCursor()),
+    vscode.commands.registerCommand('dbtFlow.runDbt', () => ctl.pickDbtCommand()),
     { dispose: () => ctl.integrations && ctl.integrations.dispose() },
+    vscode.window.onDidCloseTerminal
+      ? vscode.window.onDidCloseTerminal((t) => {
+          if (t === ctl.dbtTerminal) ctl.dbtTerminal = null;
+        })
+      : { dispose() {} },
     vscode.window.onDidChangeActiveTextEditor(() => ctl.postActiveFile()),
     vscode.workspace.onDidRenameFiles((e) =>
       ctl.onFilesRenamed(e.files).catch((err) => vscode.window.showErrorMessage(`dbt Flow: ${err.message}`))

@@ -33,6 +33,7 @@
     tidy: '<rect x="1.5" y="2.5" width="4" height="3" rx=".8"/><rect x="1.5" y="10.5" width="4" height="3" rx=".8"/><rect x="10.5" y="6.5" width="4" height="3" rx=".8"/><path d="M5.5 4h2.5v8H5.5M8 8h2.5"/>',
     fit: '<path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="5.5" width="6" height="5" rx="1"/>',
     trash: '<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/>',
+    play: '<path d="M4.5 2.8v10.4L13 8z"/>',
     plus: '<path d="M8 3v10M3 8h10"/>',
     minus: '<path d="M3 8h10"/>',
     // box kinds
@@ -87,6 +88,8 @@
         <button class="icon" id="btn-direction" aria-label="Flow direction"></button>
         <button class="icon" id="btn-fit" title="Fit to view (F)" aria-label="Fit to view">${svgIcon('fit')}</button>
         <button class="icon" id="btn-delete" aria-label="Delete selected box">${svgIcon('trash')}</button>
+        <span class="hud-sep"></span>
+        <button class="icon" id="btn-dbt" title="Run a dbt command on the whole project" aria-label="Run dbt" aria-haspopup="menu">${svgIcon('play')}</button>
       </nav>
       <div class="hud minimap" id="minimap" title="Click or drag to move around"><canvas id="minimap-canvas"></canvas></div>
       <div class="hud zoombox">
@@ -129,6 +132,8 @@
   // Integration UIs (media/integrations/*.js) hook in here; see "integrations" below.
   const hooks = { message: [], nodeMenu: [], canvasMenu: [], decorate: [], edgesMoved: [], escape: [] };
   let overlayActive = false; // an integration draws on the canvas; lineage highlight steps aside
+  // dbt commands the extension can type into its terminal; sent once on 'ready' (src/dbtrun.js).
+  let dbtCommands = { project: [], box: {} };
 
   const persist = () => vscode.setState({ t, selected });
   const post = (msg) => vscode.postMessage(msg);
@@ -693,6 +698,7 @@
     } else {
       if (n.rel) items.push({ label: 'Open file', hint: 'Double-click', run: () => post({ type: 'open', id: n.id }) });
       if (n.kind === 'model') items.push({ label: 'Rename…', hint: 'updates refs', run: () => post({ type: 'rename', id: n.id }) });
+      items.push('-', ...dbtBoxItems(n));
       items.push('-');
       items.push({ label: 'Remove from canvas', hint: n.rel ? 'file is kept' : 'Del', danger: true, run: () => removeBox(n) });
     }
@@ -702,6 +708,36 @@
     if (selected === n.id) items.push({ label: 'Clear lineage highlight', hint: 'Esc', run: () => select(null) });
     else items.push({ label: 'Highlight lineage', hint: 'Click', run: () => select(n.id) });
     return items;
+  }
+
+  /**
+   * What dbt selects for a box, shown as the menu hint: the box and everything upstream
+   * (+mart). The extension builds the real command line; this is only the label.
+   */
+  function dbtSelector(n) {
+    if (n.kind === 'source') return n.id;
+    return n.kind === 'seed' ? n.name : `+${n.name}`;
+  }
+
+  /** dbt commands for a box, run on the box and everything upstream of it. */
+  function dbtBoxItems(n) {
+    const commands = dbtCommands.box[n.kind] || [];
+    return commands.map((command) => ({
+      label: `dbt ${command}`,
+      hint: dbtSelector(n),
+      run: () => post({ type: 'dbt', command, id: n.id }),
+    }));
+  }
+
+  /** The tool bar's dbt menu: commands on the whole project. */
+  function dbtProjectMenu() {
+    const btn = $('btn-dbt');
+    const r = btn.getBoundingClientRect();
+    const items = dbtCommands.project.map((c) =>
+      c === '-' ? '-' : { label: `dbt ${c.command}`, hint: c.hint, run: () => post({ type: 'dbt', command: c.command }) }
+    );
+    if (!items.length) return toast('dbt commands are not ready yet.');
+    showMenu(items, r.right + 6, r.top);
   }
 
   function canvasMenu(cx, cy) {
@@ -959,7 +995,8 @@
   });
 
   document.addEventListener('pointerdown', (e) => {
-    if (!menu.hidden && !e.target.closest('.menu')) hideMenu();
+    // The dbt button toggles its own menu on click, so a press on it does not close it here.
+    if (!menu.hidden && !e.target.closest('.menu') && !e.target.closest('#btn-dbt')) hideMenu();
   });
   window.addEventListener('blur', hideMenu);
   window.addEventListener('resize', drawMinimap);
@@ -972,6 +1009,11 @@
   $('btn-direction').addEventListener('click', () => post({ type: 'setDirection', direction: isTB() ? 'LR' : 'TB' }));
   $('btn-fit').addEventListener('click', () => fit());
   $('btn-delete').addEventListener('click', deleteSelected);
+  $('btn-dbt').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!menu.hidden) return hideMenu();
+    dbtProjectMenu();
+  });
   $('btn-zoom-in').addEventListener('click', () => zoomCenter(t.k * 1.2));
   $('btn-zoom-out').addEventListener('click', () => zoomCenter(t.k / 1.2));
   $('zoom').addEventListener('click', () => zoomCenter(1));
@@ -1112,6 +1154,8 @@
         if (hadSavedView) applyTransform();
         else fit(true);
       }
+    } else if (msg.type === 'dbtCommands') {
+      dbtCommands = { project: msg.project || [], box: msg.box || {} };
     } else if (msg.type === 'fit') {
       fit();
     } else if (msg.type === 'synced') {

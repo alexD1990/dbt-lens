@@ -58,6 +58,11 @@ function makeVscode(wsRoot, answers) {
       },
       showErrorMessage: (m) => warnings.push('ERR ' + m),
       setStatusBarMessage: () => {},
+      createTerminal: (opts) => {
+        const term = { opts, sent: [], shown: 0, exitStatus: undefined, sendText(t) { term.sent.push(t); }, show() { term.shown += 1; } };
+        handlers.terminals = (handlers.terminals || []).concat(term);
+        return term;
+      },
       showTextDocument: async (uri, opts = {}) => posted.push({ opened: uri.fsPath, viewColumn: opts.viewColumn }),
       tabGroups: { all: [{}, {}] },
       createWebviewPanel: (type, title, showOptions, options) => {
@@ -187,5 +192,17 @@ test('extension activates, renders HTML and handles canvas messages', async () =
     { opened: path.join(root, 'models', 'staging', 'stg_a.sql'), viewColumn: 2 },
     { command: 'workbench.action.moveActiveEditorGroupLeft' },
   ]);
+
+  // dbt from a box: typed into one "dbt Flow" terminal in the project folder, box + upstream.
+  await send({ type: 'dbt', command: 'build', id: 'fct_c' });
+  await send({ type: 'dbt', command: 'docs generate' });
+  assert.equal(fake.handlers.terminals.length, 1, 'one terminal, reused');
+  const term = fake.handlers.terminals[0];
+  assert.deepEqual(term.opts, { name: 'dbt Flow', cwd: root });
+  assert.deepEqual(term.sent, ['dbt build --select +fct_c', 'dbt docs generate']);
+  // Unknown commands and unknown boxes never reach the terminal (planned boxes: test/dbtrun.test.js).
+  await send({ type: 'dbt', command: 'clean' });
+  await send({ type: 'dbt', command: 'build', id: 'stg_b' });
+  assert.equal(term.sent.length, 2);
   assert.equal(fake.warnings.filter((w) => w.startsWith('ERR')).length, 0, fake.warnings.join('\n'));
 });
