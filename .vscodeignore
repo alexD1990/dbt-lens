@@ -1,0 +1,8 @@
+.vscode/**
+.mcp/**
+docs/**
+images/**
+scripts/**
+test/**
+CLAUDE.md
+**/*.vsix

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  :root { --bg:#1f1f1f; --side:#181818; --line:#2b2b2b; --fg:#cccccc; --dim:#8b8b8b; --accent:#0078d4; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#0e0f12; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size:13px; color:var(--fg); overflow:hidden; }
+  .win { position:absolute; inset:0; display:flex; flex-direction:column; background:var(--bg); }
+  .titlebar { height:30px; flex:none; display:flex; align-items:center; justify-content:center; background:#181818; border-bottom:1px solid var(--line); position:relative; color:#9d9d9d; font-size:12px; }
+  .dots { position:absolute; left:12px; display:flex; gap:7px; }
+  .dots i { width:11px; height:11px; border-radius:50%; display:block; }
+  .main { flex:1; display:flex; min-height:0; }
+  .activity { width:44px; flex:none; background:#181818; border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; padding-top:8px; gap:14px; }
+  .activity svg { width:22px; height:22px; stroke:#868686; fill:none; stroke-width:1.5; }
+  .activity svg.on { stroke:#d7d7d7; }
+  .sidebar { width:210px; flex:none; background:var(--side); border-right:1px solid var(--line); padding:6px 0; overflow:hidden; }
+  .sidebar.hidden { display:none; }
+  .sidebar h4 { margin:2px 14px 8px; font-size:11px; font-weight:400; letter-spacing:.06em; color:#bbbbbb; }
+  .tree div { height:22px; line-height:22px; white-space:nowrap; color:#cccccc; display:flex; align-items:center; gap:5px; }
+  .tree .dir { color:#cccccc; }
+  .tree .act { background:#37373d; }
+  .tree .ico { width:14px; text-align:center; font-size:10px; color:#9a9a9a; }
+  .tree .sql { color:#e8b86d; font-size:10px; font-weight:600; width:24px; text-align:center; }
+  .tree .yml { color:#a074c4; font-size:10px; font-weight:600; width:24px; text-align:center; }
+  .tree .csv { color:#89d185; font-size:10px; font-weight:600; width:24px; text-align:center; }
+  .tree .new { animation: flashrow 1.6s ease-out; }
+  @keyframes flashrow { from { background:#264f78; } to { background:transparent; } }
+  .work { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .groups { flex:1; display:flex; min-height:0; }
+  .group { display:flex; flex-direction:column; min-width:0; }
+  .group.ed { width:var(--edw, 400px); flex:none; border-right:1px solid var(--line); }
+  .group.ed.hidden { display:none; }
+  .group.cv { flex:1; }
+  .tabs { height:34px; flex:none; display:flex; background:#181818; border-bottom:1px solid var(--line); }
+  .tab { padding:0 14px; display:flex; align-items:center; gap:7px; border-right:1px solid var(--line); color:#9d9d9d; background:#181818; font-size:12.5px; }
+  .tab.on { background:var(--bg); color:#ffffff; border-top:1px solid var(--accent); }
+  .tab .x { color:#777; margin-left:6px; }
+  .crumbs { height:22px; flex:none; padding:0 14px; color:#8b8b8b; font-size:12px; display:flex; align-items:center; }
+  .code { flex:1; overflow:hidden; font-family: "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace; font-size:12.5px; line-height:19px; padding-top:2px; }
+  .code .ln { display:flex; }
+  .code .n { width:44px; flex:none; text-align:right; padding-right:18px; color:#6e7681; }
+  .code .t { white-space:pre; color:#cccccc; }
+  .code.fresh { animation: fadein .5s ease-out; }
+  @keyframes fadein { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform:none; } }
+  .k { color:#569cd6; } .s { color:#ce9178; } .j { color:#c586c0; } .f { color:#dcdcaa; } .c { color:#6a9955; } .num { color:#b5cea8; }
+  iframe { border:0; flex:1; width:100%; background:var(--bg); }
+  .panel { height:var(--ph, 230px); flex:none; border-top:1px solid var(--line); background:var(--bg); display:flex; flex-direction:column; }
+  .panel.hidden { display:none; }
+  .ptabs { height:32px; flex:none; display:flex; align-items:center; gap:22px; padding:0 14px; font-size:11px; letter-spacing:.04em; color:#8b8b8b; }
+  .ptabs .on { color:#e7e7e7; border-bottom:1px solid #e7e7e7; padding-bottom:5px; }
+  .ptabs .tname { margin-left:auto; color:#cccccc; letter-spacing:0; font-size:12px; display:flex; align-items:center; gap:6px; }
+  .term { flex:1; overflow:hidden; padding:2px 14px; font-family: "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace; font-size:12px; line-height:17px; white-space:pre; display:flex; flex-direction:column; justify-content:flex-end; }
+  .term .p { color:#89d185; } .term .w { color:#5fa8f5; } .term .ok { color:#89d185; } .term .dim { color:#8b8b8b; } .term .caret { display:inline-block; width:7px; height:14px; background:#cccccc; vertical-align:-2px; }
+  .statusbar { height:22px; flex:none; background:#181818; border-top:1px solid var(--line); display:flex; align-items:center; gap:16px; padding:0 10px; font-size:12px; color:#9d9d9d; }
+  .statusbar .flow { color:#d7d7d7; display:flex; align-items:center; gap:5px; }
+  .statusbar .right { margin-left:auto; display:flex; gap:16px; }
+  /* quick input, like the editor's command box */
+  .qi { position:absolute; top:40px; left:50%; transform:translateX(-50%); width:560px; background:#252526; border:1px solid #454545; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.55); padding:6px; z-index:20; }
+  .qi.hidden { display:none; }
+  .qi .title { padding:4px 6px 6px; color:#cccccc; font-size:12px; text-align:center; }
+  .qi .input { height:28px; border:1px solid var(--accent); border-radius:4px; background:#313131; display:flex; align-items:center; padding:0 8px; color:#e7e7e7; }
+  .qi .input .ph { color:#8b8b8b; }
+  .qi .input .car { width:1px; height:15px; background:#e7e7e7; margin-left:1px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .qi .prompt { padding:6px 6px 2px; color:#9d9d9d; font-size:12px; }
+  .qi .items { margin-top:6px; }
+  .qi .it { height:24px; display:flex; align-items:center; padding:0 8px; border-radius:4px; gap:10px; }
+  .qi .it .d { color:#8b8b8b; font-size:12px; }
+  .qi .it.sel { background:#04395e; outline:1px solid var(--accent); }
+  /* modal dialog */
+  .modal { position:absolute; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:flex-start; justify-content:center; padding-top:90px; z-index:20; }
+  .modal.hidden { display:none; }
+  .modal .box { width:420px; background:#252526; border:1px solid #454545; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.55); padding:18px 18px 14px; }
+  .modal .msg { color:#e7e7e7; font-weight:600; margin-bottom:8px; }
+  .modal .det { color:#9d9d9d; font-size:12px; white-space:pre-line; margin-bottom:16px; }
+  .modal .btns { display:flex; justify-content:flex-end; gap:8px; }
+  .modal button { font:inherit; padding:5px 14px; border-radius:4px; border:1px solid #454545; background:#313131; color:#cccccc; }
+  .modal button.pri { background:var(--accent); border-color:var(--accent); color:#fff; }
+  /* pointer */
+  #cursor { position:absolute; left:0; top:0; width:22px; height:22px; z-index:50; pointer-events:none; transform: translate(-3px,-2px); filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+  .ripple { position:absolute; width:34px; height:34px; margin:-17px 0 0 -17px; border-radius:50%; border:2px solid rgba(255,255,255,.85); z-index:49; pointer-events:none; animation: ripple .45s ease-out forwards; }
+  .ripple.right { border-color: rgba(120,190,255,.95); }
+  @keyframes ripple { from { transform: scale(.35); opacity:1; } to { transform: scale(1); opacity:0; } }
+  .caption { position:absolute; left:50%; bottom:34px; transform:translateX(-50%); background:rgba(14,15,18,.88); border:1px solid rgba(255,255,255,.14); color:#f0f0f0; padding:7px 16px; border-radius:20px; font-size:14px; z-index:40; opacity:0; transition: opacity .25s; white-space:nowrap; }
+  .caption.on { opacity:1; }
+  .caption b { color:#ffcf7a; font-weight:600; }
+</style></head>
+<body>
+<div class="win">
+  <div class="titlebar"><span class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span><span id="wtitle">shop_analytics</span></div>
+  <div class="main">
+    <div class="activity">
+      <svg class="on" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5"/></svg>
+      <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>
+      <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 4-6 3-11 5"/></svg>
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+    </div>
+    <div class="sidebar" id="sidebar"><h4>EXPLORER</h4><div class="tree" id="tree"></div></div>
+    <div class="work">
+      <div class="groups">
+        <div class="group ed" id="ed">
+          <div class="tabs"><div class="tab on" id="edtab"><span class="sqlico" style="color:#e8b86d;font-size:10px;font-weight:700">SQL</span><span id="edname">file.sql</span><span class="x">×</span></div></div>
+          <div class="crumbs" id="crumbs"></div>
+          <div class="code" id="code"></div>
+        </div>
+        <div class="group cv">
+          <div class="tabs"><div class="tab on"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#4F9BFF" stroke-width="1.4"><rect x="1" y="2" width="5" height="4" rx="1"/><rect x="10" y="10" width="5" height="4" rx="1"/><path d="M6 4h2v8h2"/></svg>dbt Flow<span class="x">×</span></div></div>
+          <iframe id="canvas"></iframe>
+        </div>
+      </div>
+      <div class="panel hidden" id="panel">
+        <div class="ptabs"><span>PROBLEMS</span><span>OUTPUT</span><span class="on">TERMINAL</span><span class="tname"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#cccccc" stroke-width="1.3"><path d="M2 4l4 4-4 4M8 12h6"/></svg>dbt Flow</span></div>
+        <div class="term" id="term"></div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar"><span class="flow"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#d7d7d7" stroke-width="1.4"><rect x="1" y="2" width="5" height="4" rx="1"/><rect x="10" y="10" width="5" height="4" rx="1"/><path d="M6 4h2v8h2"/></svg>dbt Flow</span><span>main</span><span class="right"><span>Ln 1, Col 1</span><span>Spaces: 4</span><span>SQL (Jinja)</span></span></div>
+</div>
+<div class="qi hidden" id="qi"></div>
+<div class="modal hidden" id="modal"></div>
+<div class="caption" id="caption"></div>
+<svg id="cursor" viewBox="0 0 22 22"><path d="M3 2 L3 17.5 L7 13.8 L9.6 19.6 L12.3 18.4 L9.8 12.8 L15.2 12.6 Z" fill="#ffffff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></svg>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const KW = /\b(with|as|select|from|where|left|inner|join|on|and|or|group|by|order|count|sum|using|distinct|case|when|then|else|end|not|null|is)\b/gi;
+
+function hlPlain(s) {
+  // strings, numbers, keywords in a piece of SQL without Jinja
+  let out = '';
+  const re = /('[^']*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)|([^'A-Za-z0-9_]+)/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m[1]) out += `<span class="s">${esc(m[1])}</span>`;
+    else if (m[2]) out += `<span class="num">${m[2]}</span>`;
+    else if (m[3]) out += /^(with|as|select|from|where|left|inner|join|on|and|or|group|by|order|using|not|null|is|case|when|then|else|end)$/i.test(m[3]) ? `<span class="k">${m[3]}</span>` : /^(count|sum|min|max|avg)$/i.test(m[3]) ? `<span class="f">${m[3]}</span>` : esc(m[3]);
+    else out += esc(m[4]);
+  }
+  return out;
+}
+function hlJinja(s) {
+  return `<span class="j">${esc(s.slice(0, 2))}</span>` + esc(s.slice(2, -2)).replace(/\b(ref|source|config)\b/g, '<span class="f">$1</span>').replace(/('[^']*')/g, '<span class="s">$1</span>') + `<span class="j">${esc(s.slice(-2))}</span>`;
+}
+function hlLine(line) {
+  if (/^\s*--/.test(line)) return `<span class="c">${esc(line)}</span>`;
+  let out = '';
+  let i = 0;
+  const re = /(\{\{.*?\}\}|\{%.*?%\})/g;
+  let m;
+  while ((m = re.exec(line))) {
+    out += hlPlain(line.slice(i, m.index)) + hlJinja(m[1]);
+    i = m.index + m[1].length;
+  }
+  return out + hlPlain(line.slice(i));
+}
+window.studio = {
+  setLayout({ sidebar = true, editor = true, edw = 400, panel = false, ph = 230 }) {
+    $('sidebar').classList.toggle('hidden', !sidebar);
+    $('ed').classList.toggle('hidden', !editor);
+    document.documentElement.style.setProperty('--edw', edw + 'px');
+    document.documentElement.style.setProperty('--ph', ph + 'px');
+    $('panel').classList.toggle('hidden', !panel);
+  },
+  showPanel(on) { $('panel').classList.toggle('hidden', !on); },
+  setTree(entries, active, fresh) {
+    const tree = $('tree');
+    tree.innerHTML = '';
+    for (const e of entries) {
+      const d = document.createElement('div');
+      d.style.paddingLeft = (8 + e.depth * 12) + 'px';
+      if (e.dir) d.innerHTML = `<span class="ico">⌄</span><span class="dir">${esc(e.name)}</span>`;
+      else {
+        const ext = e.name.split('.').pop();
+        const cls = ext === 'sql' ? 'sql' : ext === 'csv' ? 'csv' : 'yml';
+        const label = ext === 'sql' ? 'SQL' : ext === 'csv' ? 'CSV' : 'YML';
+        d.innerHTML = `<span class="ico"></span><span class="${cls}">${label}</span><span>${esc(e.name)}</span>`;
+      }
+      if (e.rel === active) d.classList.add('act');
+      if (e.rel === fresh) d.classList.add('new');
+      tree.append(d);
+    }
+  },
+  openFile(rel, text, fresh) {
+    const name = rel.split('/').pop();
+    $('edname').textContent = name;
+    $('wtitle').textContent = `${name} — shop_analytics`;
+    $('crumbs').textContent = rel.split('/').join('  ›  ');
+    const code = $('code');
+    code.classList.remove('fresh');
+    void code.offsetWidth;
+    if (fresh) code.classList.add('fresh');
+    const lines = text.replace(/\n$/, '').split('\n');
+    code.innerHTML = lines.map((l, i) => `<div class="ln"><span class="n">${i + 1}</span><span class="t">${hlLine(l)}</span></div>`).join('');
+  },
+  // terminal
+  term: { lines: [] },
+  termClear() { $('term').innerHTML = ''; },
+  termAppend(html) {
+    const d = document.createElement('div');
+    d.innerHTML = html || ' ';
+    $('term').append(d);
+    const t = $('term');
+    while (t.children.length > 40) t.firstChild.remove();
+    return d;
+  },
+  termPrompt() { return this.termAppend('<span class="p">dev@laptop</span>:<span class="w">~/shop_analytics</span>$ <span class="typed"></span><span class="caret"></span>'); },
+  termType(el, text) { el.querySelector('.typed').textContent = text; },
+  termDone(el) { const c = el.querySelector('.caret'); if (c) c.remove(); },
+  // quick input
+  qiShow({ title, prompt, placeholder, items }) {
+    const qi = $('qi');
+    qi.innerHTML = (title ? `<div class="title">${esc(title)}</div>` : '') +
+      `<div class="input"><span class="val"></span><span class="car"></span><span class="ph">${esc(placeholder || '')}</span></div>` +
+      (prompt ? `<div class="prompt">${esc(prompt)}</div>` : '') +
+      `<div class="items">${(items || []).map((it, i) => `<div class="it" data-i="${i}"><span>${esc(it.label)}</span><span class="d">${esc(it.description || '')}</span></div>`).join('')}</div>`;
+    qi.classList.remove('hidden');
+  },
+  qiValue(v) { const qi = $('qi'); qi.querySelector('.val').textContent = v; qi.querySelector('.ph').style.display = v ? 'none' : ''; },
+  qiFilter(v) {
+    const q = v.toLowerCase();
+    for (const it of $('qi').querySelectorAll('.it')) it.style.display = it.textContent.toLowerCase().includes(q) ? '' : 'none';
+  },
+  qiSelect(i) { for (const it of $('qi').querySelectorAll('.it')) it.classList.toggle('sel', Number(it.dataset.i) === i); },
+  qiHide() { $('qi').classList.add('hidden'); },
+  modalShow(msg, det, buttons) {
+    const m = $('modal');
+    m.innerHTML = `<div class="box"><div class="msg">${esc(msg)}</div><div class="det">${esc(det)}</div><div class="btns">${buttons.map((b, i) => `<button class="${i === 0 ? 'pri' : ''}" data-b="${esc(b)}">${esc(b)}</button>`).join('')}</div></div>`;
+    m.classList.remove('hidden');
+  },
+  modalHide() { $('modal').classList.add('hidden'); },
+  caption(html) { const c = $('caption'); if (html) c.innerHTML = html; c.classList.toggle('on', !!html); },
+  cursor(x, y) { const c = $('cursor'); c.style.left = x + 'px'; c.style.top = y + 'px'; },
+  hideCursor(h) { $('cursor').style.display = h ? 'none' : ''; },
+  ripple(x, y, right) { const r = document.createElement('div'); r.className = 'ripple' + (right ? ' right' : ''); r.style.left = x + 'px'; r.style.top = y + 'px'; document.body.append(r); setTimeout(() => r.remove(), 600); },
+};
+</script>
+</body></html>
