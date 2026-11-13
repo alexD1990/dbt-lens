@@ -63,30 +63,139 @@ Column tracing uses [DAGtracer](#column-tracing-with-dagtracer) (`dgt`), an opti
 
 ## Getting started
 
-1. Install **NodeViz** from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nodeviz.nodeviz), from the Extensions view in VS Code (search for *NodeViz*), or with `code --install-extension nodeviz.nodeviz`.
-2. Open a folder that contains a `dbt_project.yml`. The canvas opens by itself to the right of your code.
+### What you need
 
-NodeViz is in preview: it works on real projects, and feedback and bug reports are very welcome in [Issues](https://github.com/alexD1990/nodeviz/issues).
+- **VS Code 1.85 or newer.**
+- **A dbt project**: a folder with a `dbt_project.yml`. To *see* the canvas, that is all. NodeViz draws it from your `ref()` and `source()` calls, so you do not need dbt installed, a database connection or a `target/` folder.
+- **To run dbt from the canvas** (optional): dbt-core with the adapter for your warehouse (for example `pip install dbt-databricks`), installed where VS Code runs your workspace. On WSL, Dev Containers or Remote SSH, that means inside that environment.
 
-If you close the canvas, bring it back with the **NodeViz** button in the status bar, the canvas button in the title bar of any `.sql` file, or *NodeViz: Open Canvas* in the command palette.
+### 1. Install NodeViz
 
-### Running dbt
+1. Open the Extensions view (**Ctrl+Shift+X**, or **Cmd+Shift+X** on macOS).
+2. Search for **NodeViz** and pick the one from publisher **nodeviz**.
+3. Click **Install**. If you work in WSL or another remote, click **Install in WSL** (or the remote's name), so NodeViz runs next to your files.
 
-NodeViz types the command into a terminal in your project folder, so it uses whatever `dbt` that terminal finds. If dbt lives in a virtual environment, or you use a different target, tell NodeViz in your settings:
+From a terminal: `code --install-extension nodeviz.nodeviz`
 
-```jsonc
+### 2. Open your project
+
+1. **File → Open Folder…** and choose the folder that holds `dbt_project.yml`, or a parent folder up to three levels above it (for example a repo with the project in `dbt/`).
+2. The canvas opens as a tab beside your code.
+
+If the canvas does not appear:
+
+- Open it from the **NodeViz** button in the status bar, the NodeViz icon in the title bar of any `.sql` or `.yml` file, or the command palette: **NodeViz: Open Canvas**.
+- More than one dbt project in the folder? Run **NodeViz: Choose dbt Project…**, or set `dbtFlow.projectPath`.
+- Added the dbt project *after* opening the folder (for example by copying it into a freshly cloned repo)? Run **Developer: Reload Window** once. NodeViz 0.3.0 only looks for `dbt_project.yml` when the folder opens.
+
+### 3. Read the canvas
+
+| You see | It means |
+| --- | --- |
+| Box colour | The folder: sources green, staging blue, intermediate purple, marts orange, seeds yellow. **Legend** (bottom left) lists them |
+| Chip on a box | `source`, `seed`, or the materialization set with `config()` in the file (`table`, `view`, `incremental`) |
+| Dot on the left / right | Left: what the box reads from. Right: what reads from it |
+| Solid line | A real `ref()` or `source()` in a file |
+| Dashed box, *no file yet* | A planned model you sketched; nothing on disk yet |
+| Dashed line | A planned connection |
+| Red box | A `ref()` to a model that does not exist (deleted or misspelt) |
+
+- **Click** a box to highlight everything upstream and downstream. **Esc** clears it.
+- **Double-click** a box to open its file. The box for the file you are editing lights up.
+- **Ctrl+F** finds a model, **F** fits everything in view, the **minimap** (top right) moves around large projects.
+- **Tidy up** in the tool bar lays everything out again, left to right.
+
+### 4. Tell NodeViz how to run dbt (optional)
+
+The **▶** button runs dbt by typing the command into a terminal called **NodeViz**, opened in your project folder, exactly as if you typed it. If `dbt debug` already works in a plain terminal in that folder, skip this step.
+
+#### Install dbt in a virtual environment
+
+If you do not have dbt yet, put it in its own virtual environment, **outside** your repo. One environment can serve several projects, and it never ends up in git or on the canvas.
+
+```bash
+python3 -m venv ~/.venvs/dbt
+~/.venvs/dbt/bin/pip install dbt-databricks   # or dbt-snowflake, dbt-bigquery, dbt-postgres, dbt-duckdb …
+~/.venvs/dbt/bin/dbt --version                # shows dbt-core and the adapter
+```
+
+The adapter package installs dbt-core with it. Then point NodeViz at that `dbt` with `dbtFlow.dbt.executable` (below). NodeViz then uses it whether or not the environment is activated.
+
+**Your own terminal is a different story.** It uses whichever `dbt` comes first on your `PATH`, which may be an older or broken install (a global pip, pyenv or Homebrew one). If the NodeViz terminal works and yours fails, or shows another version, check:
+
+```bash
+which dbt                          # which dbt this terminal finds
+source ~/.venvs/dbt/bin/activate   # use the venv in this terminal
+```
+
+#### NodeViz settings
+
+Add settings to `.vscode/settings.json` **in the folder you opened** in VS Code (not in a subfolder: VS Code ignores `.vscode/` anywhere else):
+
+```json
 {
-  "dbtFlow.dbt.executable": "~/.venvs/dbt/bin/dbt",  // the dbt to run
-  "dbtFlow.dbt.target": "prod",                       // added as --target
-  "dbtFlow.dbt.envFile": "~/.dbt.env"                 // KEY=VALUE lines, e.g. credentials
+  "dbtFlow.dbt.executable": "/home/you/.venvs/dbt/bin/dbt",
+  "dbtFlow.dbt.target": "dev",
+  "dbtFlow.dbt.envFile": "~/.dbt.env"
 }
 ```
 
-### Column tracing with DAGtracer
+| Setting | Use it when |
+| --- | --- |
+| `dbtFlow.dbt.executable` | dbt lives in a virtual environment, or the terminal finds the wrong `dbt`. Use the full path |
+| `dbtFlow.dbt.target` | You want a target other than the default in `profiles.yml` |
+| `dbtFlow.dbt.envFile` | Your `profiles.yml` reads credentials with `env_var()` |
 
-*Trace column…* appears when [DAGtracer](https://github.com/alexD1990/DAGtracer)'s `dgt` command is installed. It reads dbt's `target/manifest.json` and `target/catalog.json`, so run **▶ → dbt docs generate** first. If `dgt` is not on your `PATH`, set `dbtFlow.integrations.dagtracer.executable` to its full path. *NodeViz: Check Integrations* shows whether it was found.
+The env file holds `KEY=VALUE` or `export KEY=VALUE` lines and stays **outside** your repo:
 
----
+```bash
+DATABRICKS_HOST=dbc-1234abcd-5678.cloud.databricks.com
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/abcdef1234567890
+DATABRICKS_TOKEN=dapi...
+```
+
+NodeViz loads it once when it opens its terminal. After you change the file, close the **NodeViz** terminal (trash icon); the next command opens a fresh one.
+
+Check the setup with **▶ → dbt debug**.
+
+### 5. Run dbt
+
+**Whole project:** click **▶** at the bottom of the tool bar. A typical first run on a new clone:
+
+1. **deps** (if the project has a `packages.yml`)
+2. **seed**
+3. **build**
+4. **docs generate** (needed for *Trace column…*)
+
+**One model:** right-click its box. **dbt build**, **run**, **test** and **compile** run that model *and everything upstream of it* (`--select +model`), so you get a working result without building the whole project.
+
+Unsaved files are saved before a command runs.
+
+### 6. Sketch a new model
+
+1. **Create a box.** Right-click an empty spot on the canvas → **Create new box**, and type the model name. NodeViz suggests a folder from the prefix (`stg_` → staging, `int_` → intermediate, `fct_` / `dim_` / `mart_` → marts). Change it later with **Change folder…**.
+2. **Connect its inputs.** Drag **from the right-hand dot of each model the new one should read from**, and drop it on the new box. Arrows always run from the input to the model that reads it. Planned connections are dashed.
+3. **Create the file.** Right-click the box → **Create file**. NodeViz writes the `.sql` file with one import CTE per input and a placeholder `select` at the end, and opens it.
+4. **Write the logic.** Replace the placeholder `select` with your SQL and save. The box updates.
+5. **Build it.** Right-click the box → **dbt build**.
+
+**Connecting onto a model that already has a file** adds an import CTE to the top of *that* file, after a confirm dialog. Read the dialog: it names the file that will change. If it names the model you meant to read *from*, you dragged the wrong way: cancel and drag from the other box.
+
+**Undo** (**Ctrl+Z** on the canvas) reverts canvas actions one step at a time, including the file edits NodeViz made. It refuses if you have edited that file by hand since, so it never throws away your own work. **Ctrl+Shift+Z** redoes.
+
+Removing a box never deletes a file. A box without a file is deleted; any other box is only hidden (**Show removed boxes** brings it back).
+
+### Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| No canvas | Open the folder that holds `dbt_project.yml` (or a parent), then **NodeViz: Open Canvas**. Project added after opening the folder: **Developer: Reload Window** |
+| ▶ runs the wrong dbt, or `command not found` | Set `dbtFlow.dbt.executable` to the full path, in `.vscode/settings.json` of the opened folder |
+| dbt works in the NodeViz terminal but fails in yours (an `ImportError`, or another version) | Your terminal finds another `dbt`. Run `which dbt`, then `source ~/.venvs/dbt/bin/activate` |
+| `Env var required but not provided` | Set `dbtFlow.dbt.envFile`, then close the **NodeViz** terminal so it reloads the file |
+| `unable to infer all dependencies` | A stale parse cache: delete `target/partial_parse.msgpack` and run again |
+| A connection points the wrong way | **Ctrl+Z** on the canvas, then drag from the input's right-hand dot |
+| No *Trace column…* in the menu | Install DAGtracer (`dgt`), run **▶ → docs generate**, and check **NodeViz: Check Integrations** |
 
 ## Reference
 
