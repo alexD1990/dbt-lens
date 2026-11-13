@@ -2,7 +2,8 @@
   "name": "nodeviz",
   "displayName": "NodeViz",
   "description": "A visual canvas for dbt projects: see how your models connect, and sketch new ones as boxes that become .sql files.",
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "preview": true,
   "publisher": "nodeviz",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -12,7 +13,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexD1990/dbt-lens.git"
+    "url": "https://github.com/alexD1990/nodeviz.git"
+  },
+  "homepage": "https://github.com/alexD1990/nodeviz#readme",
+  "bugs": {
+    "url": "https://github.com/alexD1990/nodeviz/issues"
   },
   "engines": {
     "vscode": "^1.85.0"

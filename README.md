@@ -1,9 +1,4 @@
-<h1>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/nodeviz-wordmark-dark.png">
-    <img src="images/nodeviz-wordmark-light.png" alt="NodeViz" width="385">
-  </picture>
-</h1>
+<h1><img src="images/nodeviz-banner.png" alt="NodeViz" width="449"></h1>
 
 **A visual canvas for dbt™ projects: your models as a living flowchart, right next to your SQL.**
 
@@ -58,11 +53,10 @@ Column tracing uses [DAGtracer](#column-tracing-with-dagtracer) (`dgt`), an opti
 
 ## Getting started
 
-NodeViz is not on the VS Code Marketplace yet. To try it:
+1. Install **NodeViz** from the Extensions view in VS Code (search for *NodeViz*), or run `code --install-extension nodeviz.nodeviz`.
+2. Open a folder that contains a `dbt_project.yml`. The canvas opens by itself to the right of your code.
 
-1. Clone this repository and open it in VS Code.
-2. Press **F5** (or *Run → Start Debugging*). A new VS Code window opens with NodeViz loaded.
-3. In that window, open a folder that contains a `dbt_project.yml`. The canvas opens by itself to the right of your code.
+NodeViz is in preview: it works on real projects, and feedback and bug reports are very welcome in [Issues](https://github.com/alexD1990/nodeviz/issues).
 
 If you close the canvas, bring it back with the **NodeViz** button in the status bar, the canvas button in the title bar of any `.sql` file, or *NodeViz: Open Canvas* in the command palette.
 
@@ -161,7 +155,7 @@ NodeViz finds `dbt_project.yml` (up to three folders deep), reads `model-paths`,
 
 ## Development
 
-Plain JavaScript with no build step and no dependencies.
+Plain JavaScript with no build step and no dependencies. Clone the repository, open it in VS Code and press **F5** (*Run → Start Debugging*) to start a window with NodeViz loaded from source.
 
 ```bash
 npm test      # model, extension, dbt and integration tests (node --test)
