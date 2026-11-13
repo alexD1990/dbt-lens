@@ -1,6 +1,16 @@
-<h1><img src="images/nodeviz-banner.png" alt="NodeViz" width="449"></h1>
+<p align="center">
+  <img src="images/nodeviz-banner.png" alt="NodeViz" width="449">
+</p>
 
-**A visual canvas for dbt™ projects: your models as a living flowchart, right next to your SQL.**
+<p align="center">
+  <b>A visual canvas for dbt™ projects: your models as a living flowchart, right next to your SQL.</b>
+</p>
+
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=nodeviz.nodeviz"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install%20NodeViz-4F9BFF?logo=visualstudiocode&logoColor=white" alt="Install NodeViz from the VS Code Marketplace"></a>
+  <img src="https://img.shields.io/badge/status-preview-A97BFF" alt="Preview">
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-FF9F43" alt="MIT license"></a>
+</p>
 
 NodeViz is a VS Code extension that draws every model, seed and source in your dbt project on a canvas. Click around to see lineage, sketch new models as boxes that become `.sql` files, run dbt on any box, and find out exactly where a column disappears.
 
@@ -53,7 +63,7 @@ Column tracing uses [DAGtracer](#column-tracing-with-dagtracer) (`dgt`), an opti
 
 ## Getting started
 
-1. Install **NodeViz** from the Extensions view in VS Code (search for *NodeViz*), or run `code --install-extension nodeviz.nodeviz`.
+1. Install **NodeViz** from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nodeviz.nodeviz), from the Extensions view in VS Code (search for *NodeViz*), or with `code --install-extension nodeviz.nodeviz`.
 2. Open a folder that contains a `dbt_project.yml`. The canvas opens by itself to the right of your code.
 
 NodeViz is in preview: it works on real projects, and feedback and bug reports are very welcome in [Issues](https://github.com/alexD1990/nodeviz/issues).
