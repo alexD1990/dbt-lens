@@ -113,7 +113,7 @@ function insertDependency(sql, dep) {
  *   'not-import' it is used, but not as a plain `select *` import CTE
  *   'in-use'     the CTE's name is used elsewhere in the file (a from, a join, a column)
  *   'other-use'  the dependency is also used outside the import CTE
- *   'unexpected' the text around the CTE is not what dbt Lens understands
+ *   'unexpected' the text around the CTE is not what NodeViz understands
  */
 function removeImportCte(sql, dep) {
   const call = dep.kind === 'source'

@@ -193,12 +193,12 @@ test('extension activates, renders HTML and handles canvas messages', async () =
     { command: 'workbench.action.moveActiveEditorGroupLeft' },
   ]);
 
-  // dbt from a box: typed into one "dbt Lens" terminal in the project folder, box + upstream.
+  // dbt from a box: typed into one "NodeViz" terminal in the project folder, box + upstream.
   await send({ type: 'dbt', command: 'build', id: 'fct_c' });
   await send({ type: 'dbt', command: 'docs generate' });
   assert.equal(fake.handlers.terminals.length, 1, 'one terminal, reused');
   const term = fake.handlers.terminals[0];
-  assert.deepEqual(term.opts, { name: 'dbt Lens', cwd: root });
+  assert.deepEqual(term.opts, { name: 'NodeViz', cwd: root });
   assert.deepEqual(term.sent, ['dbt build --select +fct_c', 'dbt docs generate']);
   // Unknown commands and unknown boxes never reach the terminal (planned boxes: test/dbtrun.test.js).
   await send({ type: 'dbt', command: 'clean' });

@@ -75,7 +75,7 @@ function boxCommands(node) {
  * node null = the whole project.
  */
 function planDbt({ command, node = null, executable, target } = {}) {
-  if (!KNOWN.has(command)) return { ok: false, message: `"${command}" is not a dbt command dbt Lens runs.` };
+  if (!KNOWN.has(command)) return { ok: false, message: `"${command}" is not a dbt command NodeViz runs.` };
   let select = null;
   if (node) {
     select = selectorFor(node);
@@ -93,7 +93,7 @@ function planDbt({ command, node = null, executable, target } = {}) {
 }
 
 /**
- * Typed once when dbt Lens opens its terminal: loads the env file (for example
+ * Typed once when NodeViz opens its terminal: loads the env file (for example
  * the Databricks host and token) into that shell, the same as `source` by hand.
  * set -a exports plain KEY=VALUE lines too. Returns null without a file.
  */

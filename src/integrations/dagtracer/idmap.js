@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * Translates between dgt's node references (dbt unique_ids) and dbt Lens's
+ * Translates between dgt's node references (dbt unique_ids) and NodeViz's
  * box ids, and turns a trace into the shape the canvas draws.
  *
- * dbt Lens ids: models, seeds and snapshots by name; sources as
+ * NodeViz ids: models, seeds and snapshots by name; sources as
  * "source:<source_name>.<table_name>". dgt names sources "<source_name>.<table_name>".
  */
 

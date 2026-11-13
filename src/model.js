@@ -560,7 +560,7 @@ class FlowModel {
   }
 
   /**
-   * Files that ref() `name`, split into those where dbt Lens can remove the
+   * Files that ref() `name`, split into those where NodeViz can remove the
    * import CTE (`auto`) and those that use it further and need a hand (`manual`,
    * with the reason from removeImportCte).
    */

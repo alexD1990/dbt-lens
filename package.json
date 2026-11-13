@@ -1,10 +1,19 @@
 {
-  "name": "dbt-lens",
-  "displayName": "dbt Lens",
-  "description": "See how your dbt models connect, and sketch new ones as boxes that become .sql files.",
+  "name": "nodeviz",
+  "displayName": "NodeViz",
+  "description": "A visual canvas for dbt projects: see how your models connect, and sketch new ones as boxes that become .sql files.",
   "version": "0.2.0",
-  "publisher": "local",
+  "publisher": "nodeviz",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#12141b",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alexD1990/dbt-lens.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -31,7 +40,7 @@
       {
         "command": "dbtFlow.openPanel",
         "title": "Open Canvas",
-        "category": "dbt Lens",
+        "category": "NodeViz",
         "icon": {
           "dark": "media/icon.svg",
           "light": "media/icon-light.svg"
@@ -40,49 +49,49 @@
       {
         "command": "dbtFlow.refresh",
         "title": "Reload Project",
-        "category": "dbt Lens",
+        "category": "NodeViz",
         "icon": "$(refresh)"
       },
       {
         "command": "dbtFlow.tidy",
         "title": "Tidy Up Layout",
-        "category": "dbt Lens",
+        "category": "NodeViz",
         "icon": "$(type-hierarchy-sub)"
       },
       {
         "command": "dbtFlow.createAll",
         "title": "Create All Files",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       },
       {
         "command": "dbtFlow.undo",
         "title": "Undo Last Canvas Change",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       },
       {
         "command": "dbtFlow.redo",
         "title": "Redo Canvas Change",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       },
       {
         "command": "dbtFlow.selectProject",
         "title": "Choose dbt Project…",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       },
       {
         "command": "dbtFlow.checkIntegrations",
         "title": "Check Integrations",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       },
       {
         "command": "dbtFlow.traceColumnAtCursor",
         "title": "Trace Column",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       },
       {
         "command": "dbtFlow.runDbt",
         "title": "Run dbt Command…",
-        "category": "dbt Lens"
+        "category": "NodeViz"
       }
     ],
     "menus": {
@@ -102,7 +111,7 @@
       ]
     },
     "configuration": {
-      "title": "dbt Lens",
+      "title": "NodeViz",
       "properties": {
         "dbtFlow.openOnStartup": {
           "type": "boolean",
@@ -127,7 +136,7 @@
         "dbtFlow.dbt.executable": {
           "type": "string",
           "default": "dbt",
-          "description": "The dbt command typed into the dbt Lens terminal, or its full path, e.g. ~/.venvs/dbt-databricks/bin/dbt."
+          "description": "The dbt command typed into the NodeViz terminal, or its full path, e.g. ~/.venvs/dbt-databricks/bin/dbt."
         },
         "dbtFlow.dbt.target": {
           "type": "string",
@@ -137,7 +146,7 @@
         "dbtFlow.dbt.envFile": {
           "type": "string",
           "default": "",
-          "description": "A file of KEY=VALUE or export lines (e.g. ~/.databricks.env) loaded once into the dbt Lens terminal, like running source on it yourself."
+          "description": "A file of KEY=VALUE or export lines (e.g. ~/.databricks.env) loaded once into the NodeViz terminal, like running source on it yourself."
         },
         "dbtFlow.integrations.dagtracer.enabled": {
           "type": "boolean",
